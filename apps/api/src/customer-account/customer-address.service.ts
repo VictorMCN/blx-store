@@ -145,8 +145,8 @@ export class CustomerAddressService {
     }
 
     const isDefault =
-      dto.isDefault ??
-      existingAddress.isDefault;
+      existingAddress.isDefault ||
+      dto.isDefault === true;
 
     const address = await this.prisma.$transaction(
       async (transaction) => {
