@@ -1,0 +1,21 @@
+{
+  "name": "blx-store",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A portfolio e-commerce platform focused on secure payments, AI-assisted shopping, robust administration, and production-inspired engineering practices.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24.0.0",
+    "npm": ">=11.0.0"
+  },
+  "scripts": {
+    "dev:web": "npm run dev --workspace=@blx-store/web",
+    "dev:api": "npm run start:dev --workspace=@blx-store/api",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  }
+}
