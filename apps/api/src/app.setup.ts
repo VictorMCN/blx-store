@@ -4,8 +4,19 @@ import {
 } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
 
-export function configureApp(app: INestApplication): void {
+interface HttpApplication {
+  disable?: (setting: string) => void;
+}
+
+export function configureApp(
+  app: INestApplication,
+): void {
   app.setGlobalPrefix('api');
+
+  const httpApplication =
+    app.getHttpAdapter().getInstance() as HttpApplication;
+
+  httpApplication.disable?.('x-powered-by');
 
   app.use(cookieParser());
 

@@ -7,13 +7,16 @@ import {
   Post,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service.js';
+import { AuthGuard } from './auth.guard.js';
+import { SESSION_COOKIE_NAME } from './auth.constants.js';
+import type { AuthenticatedUser } from './auth.types.js';
+import { CurrentUser } from './current-user.decorator.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
-
-const SESSION_COOKIE_NAME = 'blx_session';
 
 interface RequestWithCookies extends Request {
   cookies: Record<string, string | undefined>;
@@ -45,10 +48,14 @@ export class AuthController {
   ) {
     const result = await this.authService.login(loginDto);
 
-    response.cookie(SESSION_COOKIE_NAME, result.sessionToken, {
-      ...getSessionCookieOptions(),
-      expires: result.expiresAt,
-    });
+    response.cookie(
+      SESSION_COOKIE_NAME,
+      result.sessionToken,
+      {
+        ...getSessionCookieOptions(),
+        expires: result.expiresAt,
+      },
+    );
 
     return {
       user: result.user,
@@ -56,10 +63,13 @@ export class AuthController {
   }
 
   @Get('me')
-  getCurrentUser(@Req() request: RequestWithCookies) {
-    return this.authService.getCurrentUser(
-      request.cookies[SESSION_COOKIE_NAME],
-    );
+  @UseGuards(AuthGuard)
+  getCurrentUser(
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return {
+      user,
+    };
   }
 
   @Post('logout')

@@ -6,6 +6,7 @@ import {
 import argon2 from 'argon2';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service.js';
+import type { AuthenticatedUser } from './auth.types.js';
 import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 
@@ -29,7 +30,9 @@ export class AuthService {
     });
 
     if (existingUser) {
-      throw new ConflictException('An account with this email already exists.');
+      throw new ConflictException(
+        'An account with this email already exists.',
+      );
     }
 
     const passwordHash = await argon2.hash(registerDto.password, {
@@ -85,7 +88,9 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('Invalid email or password.');
+      throw new UnauthorizedException(
+        'Invalid email or password.',
+      );
     }
 
     const passwordMatches = await argon2.verify(
@@ -94,12 +99,16 @@ export class AuthService {
     );
 
     if (!passwordMatches || !user.isActive) {
-      throw new UnauthorizedException('Invalid email or password.');
+      throw new UnauthorizedException(
+        'Invalid email or password.',
+      );
     }
 
     const sessionToken = randomBytes(32).toString('hex');
     const tokenHash = this.hashSessionToken(sessionToken);
-    const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
+    const expiresAt = new Date(
+      Date.now() + SESSION_DURATION_MS,
+    );
 
     await this.prisma.session.create({
       data: {
@@ -121,9 +130,16 @@ export class AuthService {
     };
   }
 
-  async getCurrentUser(sessionToken: string | undefined) {
-    if (!sessionToken || !SESSION_TOKEN_PATTERN.test(sessionToken)) {
-      throw new UnauthorizedException('Authentication required.');
+  async authenticateSession(
+    sessionToken: string | undefined,
+  ): Promise<AuthenticatedUser> {
+    if (
+      !sessionToken ||
+      !SESSION_TOKEN_PATTERN.test(sessionToken)
+    ) {
+      throw new UnauthorizedException(
+        'Authentication required.',
+      );
     }
 
     const tokenHash = this.hashSessionToken(sessionToken);
@@ -148,7 +164,9 @@ export class AuthService {
     });
 
     if (!session) {
-      throw new UnauthorizedException('Authentication required.');
+      throw new UnauthorizedException(
+        'Authentication required.',
+      );
     }
 
     if (
@@ -161,7 +179,9 @@ export class AuthService {
         },
       });
 
-      throw new UnauthorizedException('Authentication required.');
+      throw new UnauthorizedException(
+        'Authentication required.',
+      );
     }
 
     await this.prisma.session.updateMany({
@@ -174,17 +194,20 @@ export class AuthService {
     });
 
     return {
-      user: {
-        id: session.user.id,
-        email: session.user.email,
-        role: session.user.role,
-        createdAt: session.user.createdAt,
-      },
+      id: session.user.id,
+      email: session.user.email,
+      role: session.user.role,
+      createdAt: session.user.createdAt,
     };
   }
 
-  async logout(sessionToken: string | undefined): Promise<void> {
-    if (!sessionToken || !SESSION_TOKEN_PATTERN.test(sessionToken)) {
+  async logout(
+    sessionToken: string | undefined,
+  ): Promise<void> {
+    if (
+      !sessionToken ||
+      !SESSION_TOKEN_PATTERN.test(sessionToken)
+    ) {
       return;
     }
 
@@ -198,10 +221,14 @@ export class AuthService {
   }
 
   private hashSessionToken(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
+    return createHash('sha256')
+      .update(token)
+      .digest('hex');
   }
 
-  private isUniqueConstraintError(error: unknown): boolean {
+  private isUniqueConstraintError(
+    error: unknown,
+  ): boolean {
     return (
       typeof error === 'object' &&
       error !== null &&
