@@ -1,7 +1,15 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import argon2 from 'argon2';
+import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service.js';
+import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
+
+const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class AuthService {
@@ -48,12 +56,7 @@ export class AuthService {
         user,
       };
     } catch (error: unknown) {
-      if (
-        typeof error === 'object' &&
-        error !== null &&
-        'code' in error &&
-        error.code === 'P2002'
-      ) {
+      if (this.isUniqueConstraintError(error)) {
         throw new ConflictException(
           'An account with this email already exists.',
         );
@@ -61,5 +64,72 @@ export class AuthService {
 
       throw error;
     }
+  }
+
+  async login(loginDto: LoginDto) {
+    const email = loginDto.email.trim().toLowerCase();
+
+    const user = await this.prisma.user.findUnique({
+      where: {
+        email,
+      },
+      select: {
+        id: true,
+        email: true,
+        passwordHash: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Invalid email or password.');
+    }
+
+    const passwordMatches = await argon2.verify(
+      user.passwordHash,
+      loginDto.password,
+    );
+
+    if (!passwordMatches || !user.isActive) {
+      throw new UnauthorizedException('Invalid email or password.');
+    }
+
+    const sessionToken = randomBytes(32).toString('hex');
+    const tokenHash = this.hashSessionToken(sessionToken);
+    const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
+
+    await this.prisma.session.create({
+      data: {
+        userId: user.id,
+        tokenHash,
+        expiresAt,
+      },
+    });
+
+    return {
+      sessionToken,
+      expiresAt,
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        createdAt: user.createdAt,
+      },
+    };
+  }
+
+  private hashSessionToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private isUniqueConstraintError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 'P2002'
+    );
   }
 }
