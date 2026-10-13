@@ -6,3 +6,122 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+enum AccountType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+model User {
+  id              String           @id @default(uuid()) @db.Uuid
+  email           String           @unique @db.VarChar(255)
+  passwordHash    String           @db.VarChar(255)
+  role            UserRole         @default(CUSTOMER)
+  emailVerifiedAt DateTime?        @db.Timestamptz(3)
+  isActive        Boolean          @default(true)
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
+  customerProfile CustomerProfile?
+}
+
+model CustomerProfile {
+  id          String      @id @default(uuid()) @db.Uuid
+  userId      String      @unique @db.Uuid
+  accountType AccountType
+  fullName    String?     @db.VarChar(150)
+  legalName   String?     @db.VarChar(200)
+  tradeName   String?     @db.VarChar(200)
+  taxId       String      @unique @db.VarChar(20)
+  phone       String?     @db.VarChar(30)
+  createdAt   DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime    @updatedAt @db.Timestamptz(3)
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  addresses Address[]
+}
+
+model Address {
+  id             String   @id @default(uuid()) @db.Uuid
+  customerId     String   @db.Uuid
+  label          String?  @db.VarChar(80)
+  recipientName  String   @db.VarChar(150)
+  street         String   @db.VarChar(200)
+  number         String   @db.VarChar(30)
+  complement     String?  @db.VarChar(120)
+  neighborhood   String?  @db.VarChar(120)
+  city           String   @db.VarChar(120)
+  state          String   @db.VarChar(120)
+  postalCode     String   @db.VarChar(20)
+  country        String   @db.VarChar(2)
+  isDefault      Boolean  @default(false)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  customer CustomerProfile @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model Category {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String    @unique @db.VarChar(120)
+  slug        String    @unique @db.VarChar(140)
+  description String?   @db.Text
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+
+  products Product[]
+}
+
+model Product {
+  id           String         @id @default(uuid()) @db.Uuid
+  categoryId   String         @db.Uuid
+  name         String         @db.VarChar(180)
+  slug         String         @unique @db.VarChar(200)
+  sku          String         @unique @db.VarChar(80)
+  description  String         @db.Text
+  priceInCents Int
+  currency     String         @db.VarChar(3)
+  isActive     Boolean        @default(true)
+  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime       @updatedAt @db.Timestamptz(3)
+
+  category  Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  images    ProductImage[]
+  inventory Inventory?
+
+  @@index([categoryId])
+  @@index([isActive])
+}
+
+model ProductImage {
+  id        String   @id @default(uuid()) @db.Uuid
+  productId String   @db.Uuid
+  url       String   @db.Text
+  altText   String?  @db.VarChar(200)
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@unique([productId, position])
+}
+
+model Inventory {
+  id               String   @id @default(uuid()) @db.Uuid
+  productId        String   @unique @db.Uuid
+  quantity         Int      @default(0)
+  reservedQuantity Int      @default(0)
+  reorderPoint     Int      @default(0)
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
