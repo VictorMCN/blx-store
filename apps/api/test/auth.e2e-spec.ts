@@ -1,14 +1,16 @@
-import { ValidationPipe, type INestApplication } from '@nestjs/common';
+import type { INestApplication } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { createHash } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module.js';
+import { configureApp } from '../src/app.setup.js';
 import { PrismaService } from '../src/database/prisma.service.js';
 
 describe('Authentication (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let sessionCookie: string;
 
   const uniqueId = Date.now();
   const rawEmail = `AUTH.E2E.${uniqueId}@BLX.LOCAL`;
@@ -24,15 +26,7 @@ describe('Authentication (e2e)', () => {
 
     app = moduleFixture.createNestApplication();
 
-    app.setGlobalPrefix('api');
-
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-      }),
-    );
+    configureApp(app);
 
     prisma = moduleFixture.get<PrismaService>(PrismaService);
 
@@ -164,14 +158,17 @@ describe('Authentication (e2e)', () => {
 
     expect(setCookie).toBeDefined();
 
-    const cookie = Array.isArray(setCookie) ? setCookie[0] : setCookie;
+    const cookie = Array.isArray(setCookie)
+      ? setCookie[0]
+      : setCookie;
 
     expect(cookie).toContain('blx_session=');
     expect(cookie).toContain('HttpOnly');
     expect(cookie).toContain('SameSite=Lax');
 
-    const cookiePair = cookie.split(';')[0];
-    const sessionToken = cookiePair.substring(
+    sessionCookie = cookie.split(';')[0];
+
+    const sessionToken = sessionCookie.substring(
       'blx_session='.length,
     );
 
@@ -219,5 +216,44 @@ describe('Authentication (e2e)', () => {
       statusCode: 401,
       message: 'Invalid email or password.',
     });
+  });
+
+  it('returns the current authenticated user', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .set('Cookie', sessionCookie)
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      user: {
+        email: normalizedEmail,
+        role: 'CUSTOMER',
+      },
+    });
+
+    expect(response.body.user).not.toHaveProperty('password');
+    expect(response.body.user).not.toHaveProperty('passwordHash');
+  });
+
+  it('rejects access to the current user without a session', async () => {
+    await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .expect(401);
+  });
+
+  it('logs out and invalidates the session', async () => {
+    const logoutResponse = await request(app.getHttpServer())
+      .post('/api/auth/logout')
+      .set('Cookie', sessionCookie)
+      .expect(204);
+
+    const clearedCookie = logoutResponse.headers['set-cookie'];
+
+    expect(clearedCookie).toBeDefined();
+
+    await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .set('Cookie', sessionCookie)
+      .expect(401);
   });
 });

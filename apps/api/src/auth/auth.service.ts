@@ -10,6 +10,7 @@ import { LoginDto } from './dto/login.dto.js';
 import { RegisterDto } from './dto/register.dto.js';
 
 const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+const SESSION_TOKEN_PATTERN = /^[a-f0-9]{64}$/;
 
 @Injectable()
 export class AuthService {
@@ -118,6 +119,82 @@ export class AuthService {
         createdAt: user.createdAt,
       },
     };
+  }
+
+  async getCurrentUser(sessionToken: string | undefined) {
+    if (!sessionToken || !SESSION_TOKEN_PATTERN.test(sessionToken)) {
+      throw new UnauthorizedException('Authentication required.');
+    }
+
+    const tokenHash = this.hashSessionToken(sessionToken);
+
+    const session = await this.prisma.session.findUnique({
+      where: {
+        tokenHash,
+      },
+      select: {
+        id: true,
+        expiresAt: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+            isActive: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    if (!session) {
+      throw new UnauthorizedException('Authentication required.');
+    }
+
+    if (
+      session.expiresAt.getTime() <= Date.now() ||
+      !session.user.isActive
+    ) {
+      await this.prisma.session.deleteMany({
+        where: {
+          id: session.id,
+        },
+      });
+
+      throw new UnauthorizedException('Authentication required.');
+    }
+
+    await this.prisma.session.updateMany({
+      where: {
+        id: session.id,
+      },
+      data: {
+        lastUsedAt: new Date(),
+      },
+    });
+
+    return {
+      user: {
+        id: session.user.id,
+        email: session.user.email,
+        role: session.user.role,
+        createdAt: session.user.createdAt,
+      },
+    };
+  }
+
+  async logout(sessionToken: string | undefined): Promise<void> {
+    if (!sessionToken || !SESSION_TOKEN_PATTERN.test(sessionToken)) {
+      return;
+    }
+
+    const tokenHash = this.hashSessionToken(sessionToken);
+
+    await this.prisma.session.deleteMany({
+      where: {
+        tokenHash,
+      },
+    });
   }
 
   private hashSessionToken(token: string): string {
