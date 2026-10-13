@@ -13,22 +13,33 @@ describe('Authentication (e2e)', () => {
   let sessionCookie: string;
 
   const uniqueId = Date.now();
+
   const rawEmail = `AUTH.E2E.${uniqueId}@BLX.LOCAL`;
   const normalizedEmail = rawEmail.toLowerCase();
-  const attackerEmail = `attacker.e2e.${uniqueId}@blx.local`;
-  const unknownEmail = `unknown.e2e.${uniqueId}@blx.local`;
+
+  const attackerEmail =
+    `attacker.e2e.${uniqueId}@blx.local`;
+
+  const unknownEmail =
+    `unknown.e2e.${uniqueId}@blx.local`;
+
+  const inactiveEmail =
+    `inactive.e2e.${uniqueId}@blx.local`;
+
   const password = 'BLX-e2e-password-123';
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+    const moduleFixture: TestingModule =
+      await Test.createTestingModule({
+        imports: [AppModule],
+      }).compile();
 
     app = moduleFixture.createNestApplication();
 
     configureApp(app);
 
-    prisma = moduleFixture.get<PrismaService>(PrismaService);
+    prisma =
+      moduleFixture.get<PrismaService>(PrismaService);
 
     await app.init();
   });
@@ -37,7 +48,12 @@ describe('Authentication (e2e)', () => {
     await prisma.user.deleteMany({
       where: {
         email: {
-          in: [normalizedEmail, attackerEmail, unknownEmail],
+          in: [
+            normalizedEmail,
+            attackerEmail,
+            unknownEmail,
+            inactiveEmail,
+          ],
         },
       },
     });
@@ -63,21 +79,36 @@ describe('Authentication (e2e)', () => {
 
     expect(response.body.user).toHaveProperty('id');
     expect(response.body.user).toHaveProperty('createdAt');
-    expect(response.body.user).not.toHaveProperty('password');
-    expect(response.body.user).not.toHaveProperty('passwordHash');
 
-    const storedUser = await prisma.user.findUnique({
-      where: {
-        email: normalizedEmail,
-      },
-      select: {
-        passwordHash: true,
-      },
-    });
+    expect(response.body.user).not.toHaveProperty(
+      'password',
+    );
+
+    expect(response.body.user).not.toHaveProperty(
+      'passwordHash',
+    );
+
+    const storedUser =
+      await prisma.user.findUnique({
+        where: {
+          email: normalizedEmail,
+        },
+        select: {
+          passwordHash: true,
+        },
+      });
 
     expect(storedUser).not.toBeNull();
-    expect(storedUser?.passwordHash).not.toBe(password);
-    expect(storedUser?.passwordHash.startsWith('$argon2id$')).toBe(true);
+
+    expect(storedUser?.passwordHash).not.toBe(
+      password,
+    );
+
+    expect(
+      storedUser?.passwordHash.startsWith(
+        '$argon2id$',
+      ),
+    ).toBe(true);
   });
 
   it('rejects duplicate email registration', async () => {
@@ -105,11 +136,12 @@ describe('Authentication (e2e)', () => {
       })
       .expect(400);
 
-    const attacker = await prisma.user.findUnique({
-      where: {
-        email: attackerEmail,
-      },
-    });
+    const attacker =
+      await prisma.user.findUnique({
+        where: {
+          email: attackerEmail,
+        },
+      });
 
     expect(attacker).toBeNull();
   });
@@ -128,7 +160,8 @@ describe('Authentication (e2e)', () => {
     await request(app.getHttpServer())
       .post('/api/auth/register')
       .send({
-        email: `short-password.${uniqueId}@blx.local`,
+        email:
+          `short-password.${uniqueId}@blx.local`,
         password: 'short123',
       })
       .expect(400);
@@ -150,11 +183,20 @@ describe('Authentication (e2e)', () => {
       },
     });
 
-    expect(response.body.user).not.toHaveProperty('password');
-    expect(response.body.user).not.toHaveProperty('passwordHash');
-    expect(response.body).not.toHaveProperty('sessionToken');
+    expect(response.body.user).not.toHaveProperty(
+      'password',
+    );
 
-    const setCookie = response.headers['set-cookie'];
+    expect(response.body.user).not.toHaveProperty(
+      'passwordHash',
+    );
+
+    expect(response.body).not.toHaveProperty(
+      'sessionToken',
+    );
+
+    const setCookie =
+      response.headers['set-cookie'];
 
     expect(setCookie).toBeDefined();
 
@@ -168,24 +210,35 @@ describe('Authentication (e2e)', () => {
 
     sessionCookie = cookie.split(';')[0];
 
-    const sessionToken = sessionCookie.substring(
-      'blx_session='.length,
-    );
+    const sessionToken =
+      sessionCookie.substring(
+        'blx_session='.length,
+      );
 
     const tokenHash = createHash('sha256')
       .update(sessionToken)
       .digest('hex');
 
-    const storedSession = await prisma.session.findUnique({
-      where: {
-        tokenHash,
-      },
-    });
+    const storedSession =
+      await prisma.session.findUnique({
+        where: {
+          tokenHash,
+        },
+      });
 
     expect(storedSession).not.toBeNull();
-    expect(storedSession?.tokenHash).toBe(tokenHash);
-    expect(storedSession?.tokenHash).not.toBe(sessionToken);
-    expect(storedSession?.expiresAt.getTime()).toBeGreaterThan(Date.now());
+
+    expect(storedSession?.tokenHash).toBe(
+      tokenHash,
+    );
+
+    expect(storedSession?.tokenHash).not.toBe(
+      sessionToken,
+    );
+
+    expect(
+      storedSession?.expiresAt.getTime(),
+    ).toBeGreaterThan(Date.now());
   });
 
   it('rejects an incorrect password', async () => {
@@ -231,29 +284,130 @@ describe('Authentication (e2e)', () => {
       },
     });
 
-    expect(response.body.user).not.toHaveProperty('password');
-    expect(response.body.user).not.toHaveProperty('passwordHash');
+    expect(response.body.user).not.toHaveProperty(
+      'password',
+    );
+
+    expect(response.body.user).not.toHaveProperty(
+      'passwordHash',
+    );
   });
 
-  it('rejects access to the current user without a session', async () => {
+  it('rejects access without a session', async () => {
     await request(app.getHttpServer())
       .get('/api/auth/me')
       .expect(401);
   });
 
+  it('rejects a malformed session token', async () => {
+    await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .set(
+        'Cookie',
+        'blx_session=invalid-session-token',
+      )
+      .expect(401);
+  });
+
+  it('rejects and removes an expired session', async () => {
+    const user = await prisma.user.findUniqueOrThrow({
+      where: {
+        email: normalizedEmail,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    const expiredToken = createHash('sha256')
+      .update(`expired-session-${uniqueId}`)
+      .digest('hex');
+
+    const expiredTokenHash = createHash('sha256')
+      .update(expiredToken)
+      .digest('hex');
+
+    await prisma.session.create({
+      data: {
+        userId: user.id,
+        tokenHash: expiredTokenHash,
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+
+    await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .set(
+        'Cookie',
+        `blx_session=${expiredToken}`,
+      )
+      .expect(401);
+
+    const expiredSession =
+      await prisma.session.findUnique({
+        where: {
+          tokenHash: expiredTokenHash,
+        },
+      });
+
+    expect(expiredSession).toBeNull();
+  });
+
+  it('rejects login for an inactive user', async () => {
+    await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({
+        email: inactiveEmail,
+        password,
+      })
+      .expect(201);
+
+    await prisma.user.update({
+      where: {
+        email: inactiveEmail,
+      },
+      data: {
+        isActive: false,
+      },
+    });
+
+    const response = await request(
+      app.getHttpServer(),
+    )
+      .post('/api/auth/login')
+      .send({
+        email: inactiveEmail,
+        password,
+      })
+      .expect(401);
+
+    expect(response.body).toMatchObject({
+      statusCode: 401,
+      message: 'Invalid email or password.',
+    });
+  });
+
   it('logs out and invalidates the session', async () => {
-    const logoutResponse = await request(app.getHttpServer())
+    const logoutResponse = await request(
+      app.getHttpServer(),
+    )
       .post('/api/auth/logout')
       .set('Cookie', sessionCookie)
       .expect(204);
 
-    const clearedCookie = logoutResponse.headers['set-cookie'];
-
-    expect(clearedCookie).toBeDefined();
+    expect(
+      logoutResponse.headers['set-cookie'],
+    ).toBeDefined();
 
     await request(app.getHttpServer())
       .get('/api/auth/me')
       .set('Cookie', sessionCookie)
       .expect(401);
+  });
+
+  it('allows logout without an active session', async () => {
+    await request(app.getHttpServer())
+      .post('/api/auth/logout')
+      .expect(204);
   });
 });
