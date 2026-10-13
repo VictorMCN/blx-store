@@ -27,6 +27,21 @@ model User {
   createdAt       DateTime         @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
   customerProfile CustomerProfile?
+  sessions        Session[]
+}
+
+model Session {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  tokenHash  String   @unique @db.VarChar(64)
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  lastUsedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model CustomerProfile {
@@ -46,21 +61,21 @@ model CustomerProfile {
 }
 
 model Address {
-  id             String   @id @default(uuid()) @db.Uuid
-  customerId     String   @db.Uuid
-  label          String?  @db.VarChar(80)
-  recipientName  String   @db.VarChar(150)
-  street         String   @db.VarChar(200)
-  number         String   @db.VarChar(30)
-  complement     String?  @db.VarChar(120)
-  neighborhood   String?  @db.VarChar(120)
-  city           String   @db.VarChar(120)
-  state          String   @db.VarChar(120)
-  postalCode     String   @db.VarChar(20)
-  country        String   @db.VarChar(2)
-  isDefault      Boolean  @default(false)
-  createdAt      DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+  id            String   @id @default(uuid()) @db.Uuid
+  customerId    String   @db.Uuid
+  label         String?  @db.VarChar(80)
+  recipientName String   @db.VarChar(150)
+  street        String   @db.VarChar(200)
+  number        String   @db.VarChar(30)
+  complement    String?  @db.VarChar(120)
+  neighborhood  String?  @db.VarChar(120)
+  city          String   @db.VarChar(120)
+  state         String   @db.VarChar(120)
+  postalCode    String   @db.VarChar(20)
+  country       String   @db.VarChar(2)
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
 
   customer CustomerProfile @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
@@ -68,29 +83,29 @@ model Address {
 }
 
 model Category {
-  id          String    @id @default(uuid()) @db.Uuid
-  name        String    @unique @db.VarChar(120)
-  slug        String    @unique @db.VarChar(140)
-  description String?   @db.Text
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique @db.VarChar(120)
+  slug        String   @unique @db.VarChar(140)
+  description String?  @db.Text
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 
   products Product[]
 }
 
 model Product {
-  id           String         @id @default(uuid()) @db.Uuid
-  categoryId   String         @db.Uuid
-  name         String         @db.VarChar(180)
-  slug         String         @unique @db.VarChar(200)
-  sku          String         @unique @db.VarChar(80)
-  description  String         @db.Text
+  id           String   @id @default(uuid()) @db.Uuid
+  categoryId   String   @db.Uuid
+  name         String   @db.VarChar(180)
+  slug         String   @unique @db.VarChar(200)
+  sku          String   @unique @db.VarChar(80)
+  description  String   @db.Text
   priceInCents Int
-  currency     String         @db.VarChar(3)
-  isActive     Boolean        @default(true)
-  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime       @updatedAt @db.Timestamptz(3)
+  currency     String   @db.VarChar(3)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
 
   category  Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   images    ProductImage[]
@@ -110,8 +125,8 @@ model ProductImage {
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
-  @@index([productId])
   @@unique([productId, position])
+  @@index([productId])
 }
 
 model Inventory {
