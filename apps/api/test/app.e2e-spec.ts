@@ -30,6 +30,7 @@ describe('AppController (e2e)', () => {
     expect(response.body).toEqual({
       status: 'ok',
       service: 'blx-store-api',
+      database: 'ok',
       timestamp: expect.any(String),
     });
   });
