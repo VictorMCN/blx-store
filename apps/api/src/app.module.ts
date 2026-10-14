@@ -7,6 +7,7 @@ import { CartModule } from './cart/cart.module.js';
 import { CatalogModule } from './catalog/catalog.module.js';
 import { CustomerAccountModule } from './customer-account/customer-account.module.js';
 import { PrismaModule } from './database/prisma.module.js';
+import { OrderModule } from './order/order.module.js';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { PrismaModule } from './database/prisma.module.js';
     CustomerAccountModule,
     CatalogModule,
     CartModule,
+    OrderModule,
   ],
   controllers: [AppController],
   providers: [AppService],
