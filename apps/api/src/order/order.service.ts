@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service.js';
 import type { AccountType } from '../generated/prisma/enums.js';
 import { CreateOrderDto } from './dto/create-order.dto.js';
+import { ListOrdersQueryDto } from './dto/list-orders-query.dto.js';
 
 const RESERVATION_DURATION_MINUTES = 30;
 const MAX_TRANSACTION_ATTEMPTS = 3;
@@ -47,6 +48,166 @@ export class OrderService {
     throw new ConflictException(
       'Checkout could not be completed. Please try again.',
     );
+  }
+
+  async listOrders(
+    userId: string,
+    query: ListOrdersQueryDto,
+  ) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 10;
+
+    const where = {
+      userId,
+      ...(query.status
+        ? {
+            status: query.status,
+          }
+        : {}),
+    };
+
+    const [orders, total] =
+      await this.prisma.$transaction([
+        this.prisma.order.findMany({
+          where,
+          select: {
+            id: true,
+            orderNumber: true,
+            status: true,
+            currency: true,
+            subtotalInCents: true,
+            shippingInCents: true,
+            totalInCents: true,
+            reservationExpiresAt: true,
+            createdAt: true,
+            updatedAt: true,
+            _count: {
+              select: {
+                items: true,
+              },
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+
+        this.prisma.order.count({
+          where,
+        }),
+      ]);
+
+    return {
+      orders: orders.map((order) => ({
+        id: order.id,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        currency: order.currency,
+        subtotalInCents:
+          order.subtotalInCents,
+        shippingInCents:
+          order.shippingInCents,
+        totalInCents:
+          order.totalInCents,
+        itemCount: order._count.items,
+        reservationExpiresAt:
+          order.reservationExpiresAt,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages:
+          total === 0
+            ? 0
+            : Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getOrder(
+    userId: string,
+    orderId: string,
+  ) {
+    const order =
+      await this.prisma.order.findFirst({
+        where: {
+          id: orderId,
+          userId,
+        },
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          currency: true,
+
+          subtotalInCents: true,
+          shippingInCents: true,
+          totalInCents: true,
+
+          customerAccountType: true,
+          customerName: true,
+          customerEmail: true,
+          customerTaxId: true,
+          customerPhone: true,
+
+          shippingRecipientName: true,
+          shippingStreet: true,
+          shippingNumber: true,
+          shippingComplement: true,
+          shippingNeighborhood: true,
+          shippingCity: true,
+          shippingState: true,
+          shippingPostalCode: true,
+          shippingCountry: true,
+
+          reservationExpiresAt: true,
+          createdAt: true,
+          updatedAt: true,
+
+          items: {
+            select: {
+              id: true,
+              productId: true,
+              productName: true,
+              productSlug: true,
+              productSku: true,
+              unitPriceInCents: true,
+              quantity: true,
+              lineTotalInCents: true,
+              createdAt: true,
+            },
+            orderBy: {
+              createdAt: 'asc',
+            },
+          },
+        },
+      });
+
+    if (!order) {
+      throw new NotFoundException(
+        'Order not found.',
+      );
+    }
+
+    const {
+      customerTaxId,
+      ...safeOrder
+    } = order;
+
+    return {
+      order: {
+        ...safeOrder,
+        customerTaxIdMasked:
+          this.maskTaxId(
+            customerTaxId,
+          ),
+      },
+    };
   }
 
   private async createOrderTransaction(
@@ -380,14 +541,18 @@ export class OrderService {
           },
         });
 
+        const {
+          customerTaxId,
+          ...safeOrder
+        } = order;
+
         return {
           order: {
-            ...order,
+            ...safeOrder,
             customerTaxIdMasked:
               this.maskTaxId(
-                order.customerTaxId,
+                customerTaxId,
               ),
-            customerTaxId: undefined,
           },
         };
       },
