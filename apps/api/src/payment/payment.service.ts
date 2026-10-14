@@ -45,6 +45,68 @@ export class PaymentService {
             },
           );
 
+    this.assertPaymentIntentMatches(
+      {
+        id: payment.id,
+        orderId: payment.order.id,
+        amountInCents:
+          payment.amountInCents,
+        currency: payment.currency,
+      },
+      paymentIntent,
+    );
+
+    await this.linkProviderPaymentIntent(
+      payment.id,
+      paymentIntent.id,
+    );
+
+    const providerStatus =
+      this.mapActiveProviderStatus(
+        paymentIntent.status,
+      );
+
+    if (providerStatus) {
+      await this.syncActiveProviderStatus(
+        payment.id,
+        providerStatus,
+      );
+    }
+
+    if (
+      paymentIntent.status === 'succeeded'
+    ) {
+      await this.reconcileSucceededPayment(
+        paymentIntent,
+      );
+
+      return {
+        payment: {
+          id: payment.id,
+          provider: payment.provider,
+          status: 'SUCCEEDED' as const,
+          amountInCents:
+            payment.amountInCents,
+          currency:
+            payment.currency,
+        },
+        clientSecret:
+          paymentIntent.client_secret,
+      };
+    }
+
+    if (
+      paymentIntent.status === 'canceled'
+    ) {
+      await this.handlePaymentCanceled(
+        paymentIntent,
+      );
+
+      throw new ConflictException(
+        'Payment attempt has been canceled.',
+      );
+    }
+
     await this.ensureOrderStillAcceptsPayment(
       payment.order.id,
       paymentIntent,
@@ -54,47 +116,6 @@ export class PaymentService {
       throw new ServiceUnavailableException(
         'Payment provider did not return a client secret.',
       );
-    }
-
-    const providerStatus =
-      this.mapActiveProviderStatus(
-        paymentIntent.status,
-      );
-
-    if (
-      !payment.providerPaymentIntentId
-    ) {
-      await this.prisma.payment.update({
-        where: {
-          id: payment.id,
-        },
-        data: {
-          providerPaymentIntentId:
-            paymentIntent.id,
-          status:
-            providerStatus ??
-            payment.status,
-        },
-      });
-    } else if (
-      providerStatus &&
-      providerStatus !== payment.status
-    ) {
-      await this.prisma.payment.update({
-        where: {
-          id: payment.id,
-        },
-        data: {
-          status: providerStatus,
-          ...(providerStatus ===
-          'PROCESSING'
-            ? {
-                failureCode: null,
-                failureMessage: null,
-              }
-            : {}),
-        },
-      });
     }
 
     return {
@@ -111,6 +132,23 @@ export class PaymentService {
       clientSecret:
         paymentIntent.client_secret,
     };
+  }
+
+  async reconcileSucceededPayment(
+    paymentIntent: Stripe.PaymentIntent,
+  ): Promise<void> {
+    if (
+      paymentIntent.status !== 'succeeded'
+    ) {
+      throw new ConflictException(
+        'Payment provider does not report a successful payment.',
+      );
+    }
+
+    await this.handlePaymentSucceeded(
+      paymentIntent,
+      new Date(),
+    );
   }
 
   async handleStripeWebhook(
@@ -315,6 +353,61 @@ export class PaymentService {
     );
   }
 
+  private async linkProviderPaymentIntent(
+    paymentId: string,
+    paymentIntentId: string,
+  ): Promise<void> {
+    const linkedPayment =
+      await this.prisma.payment.updateMany({
+        where: {
+          id: paymentId,
+          OR: [
+            {
+              providerPaymentIntentId:
+                null,
+            },
+            {
+              providerPaymentIntentId:
+                paymentIntentId,
+            },
+          ],
+        },
+        data: {
+          providerPaymentIntentId:
+            paymentIntentId,
+        },
+      });
+
+    if (linkedPayment.count !== 1) {
+      throw new ConflictException(
+        'Payment attempt is already linked to a different provider payment.',
+      );
+    }
+  }
+
+  private async syncActiveProviderStatus(
+    paymentId: string,
+    status: 'PENDING' | 'PROCESSING',
+  ): Promise<void> {
+    await this.prisma.payment.updateMany({
+      where: {
+        id: paymentId,
+        status: {
+          in: [
+            'PENDING',
+            'PROCESSING',
+            'FAILED',
+          ],
+        },
+      },
+      data: {
+        status,
+        failureCode: null,
+        failureMessage: null,
+      },
+    });
+  }
+
   private async handlePaymentSucceeded(
     paymentIntent: Stripe.PaymentIntent,
     succeededAt: Date,
@@ -372,31 +465,12 @@ export class PaymentService {
             }
 
             if (
-              payment.order.status === 'EXPIRED' ||
-              payment.order.status === 'CANCELED'
+              payment.order.status !==
+              'PENDING_PAYMENT'
             ) {
               throw new ConflictException(
                 'Order can no longer be completed by this payment.',
               );
-            }
-
-            if (
-              payment.order.status !==
-              'PENDING_PAYMENT'
-            ) {
-              await transaction.payment.update({
-                where: {
-                  id: payment.id,
-                },
-                data: {
-                  status: 'SUCCEEDED',
-                  succeededAt,
-                  failureCode: null,
-                  failureMessage: null,
-                },
-              });
-
-              return;
             }
 
             for (
@@ -529,8 +603,8 @@ export class PaymentService {
           paymentIntent.id,
         );
       } catch {
-        // The client secret must not be returned once
-        // the order is no longer eligible for payment.
+        // The PaymentIntent is already persisted locally.
+        // The scheduler can safely reconcile it later.
       }
     }
 

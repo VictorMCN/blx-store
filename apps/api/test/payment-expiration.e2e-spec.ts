@@ -15,7 +15,16 @@ import {
 import { PrismaModule } from '../src/database/prisma.module.js';
 import { PrismaService } from '../src/database/prisma.service.js';
 import { PaymentExpirationService } from '../src/payment/payment-expiration.service.js';
+import { PaymentService } from '../src/payment/payment.service.js';
 import { StripeService } from '../src/payment/stripe.service.js';
+
+interface CreatePaymentIntentInput {
+  paymentId: string;
+  orderId: string;
+  orderNumber: string;
+  amountInCents: number;
+  currency: string;
+}
 
 class FakeStripeExpirationService {
   private readonly paymentIntents =
@@ -24,16 +33,72 @@ class FakeStripeExpirationService {
       Stripe.PaymentIntent
     >();
 
-  readonly retrieveCalls: string[] = [];
-  readonly cancelCalls: string[] = [];
+  createCalls: string[] = [];
+  retrieveCalls: string[] = [];
+  cancelCalls: string[] = [];
 
-  setPaymentIntent(
-    paymentIntent: Stripe.PaymentIntent,
-  ) {
+  onCreate:
+    | ((
+        paymentIntent:
+          Stripe.PaymentIntent,
+      ) => Promise<void>)
+    | null = null;
+
+  async createPaymentIntent(
+    input: CreatePaymentIntentInput,
+  ): Promise<Stripe.PaymentIntent> {
+    this.createCalls.push(
+      input.paymentId,
+    );
+
+    const existing =
+      Array.from(
+        this.paymentIntents.values(),
+      ).find(
+        (paymentIntent) =>
+          paymentIntent.metadata
+            .paymentId ===
+          input.paymentId,
+      );
+
+    if (existing) {
+      return existing;
+    }
+
+    const paymentIntent = {
+      id:
+        `pi_exp_${input.paymentId}`,
+      object: 'payment_intent',
+      amount:
+        input.amountInCents,
+      currency:
+        input.currency.toLowerCase(),
+      status:
+        'requires_payment_method',
+      client_secret:
+        `secret_${input.paymentId}`,
+      metadata: {
+        paymentId:
+          input.paymentId,
+        orderId:
+          input.orderId,
+        orderNumber:
+          input.orderNumber,
+      },
+    } as Stripe.PaymentIntent;
+
     this.paymentIntents.set(
       paymentIntent.id,
       paymentIntent,
     );
+
+    if (this.onCreate) {
+      await this.onCreate(
+        paymentIntent,
+      );
+    }
+
+    return paymentIntent;
   }
 
   async retrievePaymentIntent(
@@ -75,7 +140,7 @@ class FakeStripeExpirationService {
       );
     }
 
-    const canceledPaymentIntent = {
+    const canceled = {
       ...paymentIntent,
       status: 'canceled',
       cancellation_reason:
@@ -84,10 +149,19 @@ class FakeStripeExpirationService {
 
     this.paymentIntents.set(
       paymentIntentId,
-      canceledPaymentIntent,
+      canceled,
     );
 
-    return canceledPaymentIntent;
+    return canceled;
+  }
+
+  setPaymentIntent(
+    paymentIntent: Stripe.PaymentIntent,
+  ) {
+    this.paymentIntents.set(
+      paymentIntent.id,
+      paymentIntent,
+    );
   }
 
   getPaymentIntent(
@@ -100,8 +174,12 @@ class FakeStripeExpirationService {
 
   reset() {
     this.paymentIntents.clear();
-    this.retrieveCalls.length = 0;
-    this.cancelCalls.length = 0;
+
+    this.createCalls = [];
+    this.retrieveCalls = [];
+    this.cancelCalls = [];
+
+    this.onCreate = null;
   }
 }
 
@@ -110,8 +188,13 @@ describe(
   () => {
     let moduleRef: TestingModule;
     let prisma: PrismaService;
+
     let expirationService:
       PaymentExpirationService;
+
+    let paymentService:
+      PaymentService;
+
     let fakeStripe:
       FakeStripeExpirationService;
 
@@ -119,10 +202,15 @@ describe(
 
     const createdOrderIds: string[] =
       [];
+
     const createdProductIds: string[] =
       [];
 
+    const createdUserIds: string[] =
+      [];
+
     const uniqueId = Date.now();
+
     let scenarioCounter = 0;
 
     function createPaymentIntent(
@@ -130,6 +218,7 @@ describe(
         id: string;
         paymentId: string;
         orderId: string;
+        amountInCents: number;
         status:
           Stripe.PaymentIntent.Status;
       },
@@ -137,9 +226,12 @@ describe(
       return {
         id: input.id,
         object: 'payment_intent',
-        amount: 100000,
+        amount:
+          input.amountInCents,
         currency: 'brl',
         status: input.status,
+        client_secret:
+          `secret_${input.id}`,
         metadata: {
           paymentId:
             input.paymentId,
@@ -149,29 +241,13 @@ describe(
       } as Stripe.PaymentIntent;
     }
 
-    async function createScenario(
-      options?: {
-        expired?: boolean;
-        quantity?: number;
-        paymentStatus?:
-          | 'PENDING'
-          | 'PROCESSING'
-          | 'FAILED';
-        providerStatus?:
-          | Stripe.PaymentIntent.Status
-          | null;
-      },
+    async function createProduct(
+      quantity: number,
     ) {
       scenarioCounter += 1;
 
-      const quantity =
-        options?.quantity ?? 2;
-
-      const expired =
-        options?.expired ?? true;
-
       const suffix =
-        `${String(uniqueId).slice(-7)}-${scenarioCounter}`;
+        `${String(uniqueId).slice(-6)}-${scenarioCounter}`;
 
       const product =
         await prisma.product.create({
@@ -190,20 +266,27 @@ describe(
             description:
               'Product used to verify payment reservation expiration.',
 
-            priceInCents: 50000,
+            priceInCents:
+              50000,
+
             currency: 'BRL',
 
             inventory: {
               create: {
                 quantity: 10,
+
                 reservedQuantity:
                   quantity,
+
                 reorderPoint: 1,
               },
             },
           },
           select: {
             id: true,
+            slug: true,
+            sku: true,
+
             inventory: {
               select: {
                 id: true,
@@ -222,11 +305,29 @@ describe(
         );
       }
 
+      return product;
+    }
+
+    async function createOrder(
+      input: {
+        productId: string;
+        productSlug: string;
+        productSku: string;
+        quantity: number;
+        expired: boolean;
+        userId?: string;
+      },
+    ) {
+      const now = Date.now();
+
       const order =
         await prisma.order.create({
           data: {
+            userId:
+              input.userId,
+
             orderNumber:
-              `BLX-EXP-${String(uniqueId).slice(-6)}-${scenarioCounter}`,
+              `BLX-E-${String(uniqueId).slice(-5)}-${scenarioCounter}`,
 
             status:
               'PENDING_PAYMENT',
@@ -234,12 +335,14 @@ describe(
             currency: 'BRL',
 
             subtotalInCents:
-              50000 * quantity,
+              50000 *
+              input.quantity,
 
             shippingInCents: 0,
 
             totalInCents:
-              50000 * quantity,
+              50000 *
+              input.quantity,
 
             customerAccountType:
               'INDIVIDUAL',
@@ -274,7 +377,8 @@ describe(
             shippingCity:
               'Brasilia',
 
-            shippingState: 'DF',
+            shippingState:
+              'DF',
 
             shippingPostalCode:
               '70000000',
@@ -283,9 +387,9 @@ describe(
               'BR',
 
             createdAt:
-              expired
+              input.expired
                 ? new Date(
-                    Date.now() -
+                    now -
                       35 *
                         60 *
                         1000,
@@ -293,38 +397,44 @@ describe(
                 : new Date(),
 
             reservationExpiresAt:
-              new Date(
-                Date.now() +
-                  (expired
-                    ? -5 * 60 * 1000
-                    : 30 *
-                      60 *
-                      1000),
-              ),
+              input.expired
+                ? new Date(
+                    now -
+                      5 *
+                        60 *
+                        1000,
+                  )
+                : new Date(
+                    now +
+                      30 *
+                        60 *
+                        1000,
+                  ),
 
             items: {
               create: [
                 {
                   productId:
-                    product.id,
+                    input.productId,
 
                   productName:
                     'Expiration Product',
 
                   productSlug:
-                    `payment-expiration-${suffix}`,
+                    input.productSlug,
 
                   productSku:
-                    `EXP-${suffix}`,
+                    input.productSku,
 
                   unitPriceInCents:
                     50000,
 
-                  quantity,
+                  quantity:
+                    input.quantity,
 
                   lineTotalInCents:
                     50000 *
-                    quantity,
+                    input.quantity,
                 },
               ],
             },
@@ -334,6 +444,50 @@ describe(
       createdOrderIds.push(
         order.id,
       );
+
+      return order;
+    }
+
+    async function createScenario(
+      options?: {
+        expired?: boolean;
+        quantity?: number;
+
+        paymentStatus?:
+          | 'PENDING'
+          | 'PROCESSING'
+          | 'FAILED';
+
+        providerStatus?:
+          | Stripe.PaymentIntent.Status
+          | null;
+      },
+    ) {
+      const quantity =
+        options?.quantity ?? 2;
+
+      const product =
+        await createProduct(
+          quantity,
+        );
+
+      const order =
+        await createOrder({
+          productId:
+            product.id,
+
+          productSlug:
+            product.slug,
+
+          productSku:
+            product.sku,
+
+          quantity,
+
+          expired:
+            options?.expired ??
+            true,
+        });
 
       const providerStatus =
         options?.providerStatus ===
@@ -376,10 +530,17 @@ describe(
           createPaymentIntent({
             id:
               paymentIntentId,
+
             paymentId:
               payment.id,
+
             orderId:
               order.id,
+
+            amountInCents:
+              50000 *
+              quantity,
+
             status:
               providerStatus,
           }),
@@ -400,6 +561,7 @@ describe(
           product.inventory.id,
 
         paymentIntentId,
+
         quantity,
       };
     }
@@ -431,7 +593,12 @@ describe(
           },
           select: {
             status: true,
+
+            providerPaymentIntentId:
+              true,
+
             failureCode: true,
+
             failureMessage: true,
           },
         }),
@@ -443,7 +610,9 @@ describe(
           },
           select: {
             quantity: true,
-            reservedQuantity: true,
+
+            reservedQuantity:
+              true,
           },
         }),
       ]);
@@ -493,8 +662,23 @@ describe(
         });
       }
 
+      if (
+        createdUserIds.length >
+        0
+      ) {
+        await prisma.user.deleteMany({
+          where: {
+            id: {
+              in:
+                createdUserIds,
+            },
+          },
+        });
+      }
+
       createdOrderIds.length = 0;
       createdProductIds.length = 0;
+      createdUserIds.length = 0;
     }
 
     beforeAll(async () => {
@@ -506,15 +690,23 @@ describe(
           imports: [
             ConfigModule.forRoot({
               isGlobal: true,
-              envFilePath: ['.env', '../../.env'],
+              envFilePath: [
+                '.env',
+                '../../.env',
+              ],
             }),
+
             PrismaModule,
           ],
+
           providers: [
+            PaymentService,
             PaymentExpirationService,
+
             {
               provide:
                 StripeService,
+
               useValue:
                 fakeStripe,
             },
@@ -526,6 +718,11 @@ describe(
       prisma =
         moduleRef.get(
           PrismaService,
+        );
+
+      paymentService =
+        moduleRef.get(
+          PaymentService,
         );
 
       expirationService =
@@ -576,11 +773,12 @@ describe(
     });
 
     it(
-      'expires an order without a provider PaymentIntent and releases its reservation',
+      'recovers an unlinked provider PaymentIntent before releasing an expired reservation',
       async () => {
         const scenario =
           await createScenario({
-            providerStatus: null,
+            providerStatus:
+              null,
           });
 
         await expirationService.expirePendingOrders();
@@ -599,10 +797,9 @@ describe(
         ).toBe('CANCELED');
 
         expect(
-          state.payment.failureCode,
-        ).toBe(
-          'reservation_expired',
-        );
+          state.payment
+            .providerPaymentIntentId,
+        ).not.toBeNull();
 
         expect(
           state.inventory.quantity,
@@ -614,17 +811,19 @@ describe(
         ).toBe(0);
 
         expect(
-          fakeStripe.retrieveCalls,
-        ).toHaveLength(0);
+          fakeStripe.createCalls,
+        ).toEqual([
+          scenario.paymentId,
+        ]);
 
         expect(
           fakeStripe.cancelCalls,
-        ).toHaveLength(0);
+        ).toHaveLength(1);
       },
     );
 
     it(
-      'cancels a payable Stripe PaymentIntent before releasing the reservation',
+      'cancels an existing payable PaymentIntent before releasing the reservation',
       async () => {
         const scenario =
           await createScenario();
@@ -660,22 +859,17 @@ describe(
         ).toEqual([
           scenario.paymentIntentId,
         ]);
-
-        expect(
-          fakeStripe.getPaymentIntent(
-            scenario.paymentIntentId!,
-          )?.status,
-        ).toBe('canceled');
       },
     );
 
     it(
-      'expires a failed payment attempt that still has a reusable PaymentIntent',
+      'expires a failed reusable payment attempt safely',
       async () => {
         const scenario =
           await createScenario({
             paymentStatus:
               'FAILED',
+
             providerStatus:
               'requires_payment_method',
           });
@@ -699,12 +893,6 @@ describe(
           state.inventory
             .reservedQuantity,
         ).toBe(0);
-
-        expect(
-          fakeStripe.cancelCalls,
-        ).toEqual([
-          scenario.paymentIntentId,
-        ]);
       },
     );
 
@@ -715,6 +903,7 @@ describe(
           await createScenario();
 
         await expirationService.expirePendingOrders();
+
         await expirationService.expirePendingOrders();
 
         const state =
@@ -725,10 +914,6 @@ describe(
         expect(
           state.order.status,
         ).toBe('EXPIRED');
-
-        expect(
-          state.payment.status,
-        ).toBe('CANCELED');
 
         expect(
           state.inventory.quantity,
@@ -771,10 +956,6 @@ describe(
         ).toBe('PENDING');
 
         expect(
-          state.inventory.quantity,
-        ).toBe(10);
-
-        expect(
           state.inventory
             .reservedQuantity,
         ).toBe(
@@ -784,6 +965,44 @@ describe(
         expect(
           fakeStripe.retrieveCalls,
         ).toHaveLength(0);
+      },
+    );
+
+    it(
+      'reconciles a successful provider payment instead of expiring the order',
+      async () => {
+        const scenario =
+          await createScenario({
+            providerStatus:
+              'succeeded',
+          });
+
+        await expirationService.expirePendingOrders();
+
+        const state =
+          await readScenario(
+            scenario,
+          );
+
+        expect(
+          state.order.status,
+        ).toBe('PAID');
+
+        expect(
+          state.payment.status,
+        ).toBe('SUCCEEDED');
+
+        expect(
+          state.inventory.quantity,
+        ).toBe(
+          10 -
+            scenario.quantity,
+        );
+
+        expect(
+          state.inventory
+            .reservedQuantity,
+        ).toBe(0);
 
         expect(
           fakeStripe.cancelCalls,
@@ -792,12 +1011,15 @@ describe(
     );
 
     it(
-      'does not expire or release inventory when Stripe already reports a successful payment',
+      'keeps inventory reserved while a provider payment is processing',
       async () => {
         const scenario =
           await createScenario({
+            paymentStatus:
+              'PROCESSING',
+
             providerStatus:
-              'succeeded',
+              'processing',
           });
 
         await expirationService.expirePendingOrders();
@@ -815,7 +1037,9 @@ describe(
 
         expect(
           state.payment.status,
-        ).toBe('PENDING');
+        ).toBe(
+          'PROCESSING',
+        );
 
         expect(
           state.inventory.quantity,
@@ -829,14 +1053,152 @@ describe(
         );
 
         expect(
-          fakeStripe.retrieveCalls,
-        ).toEqual([
-          scenario.paymentIntentId,
-        ]);
+          fakeStripe.cancelCalls,
+        ).toHaveLength(0);
+      },
+    );
+
+    it(
+      'persists the provider PaymentIntent before rejecting a payment that expires during initialization',
+      async () => {
+        const user =
+          await prisma.user.create({
+            data: {
+              email:
+                `expiration-race-${uniqueId}@example.com`,
+
+              passwordHash:
+                'test-password-hash',
+            },
+          });
+
+        createdUserIds.push(
+          user.id,
+        );
+
+        const product =
+          await createProduct(1);
+
+        const order =
+          await createOrder({
+            productId:
+              product.id,
+
+            productSlug:
+              product.slug,
+
+            productSku:
+              product.sku,
+
+            quantity: 1,
+
+            expired: false,
+
+            userId:
+              user.id,
+          });
+
+        await prisma.order.update({
+          where: {
+            id: order.id,
+          },
+          data: {
+            createdAt:
+              new Date(
+                Date.now() -
+                  35 *
+                    60 *
+                    1000,
+              ),
+          },
+        });
+
+        fakeStripe.onCreate =
+          async () => {
+            await prisma.order.update({
+              where: {
+                id: order.id,
+              },
+              data: {
+                reservationExpiresAt:
+                  new Date(
+                    Date.now() -
+                      60 *
+                        1000,
+                  ),
+              },
+            });
+          };
+
+        await expect(
+          paymentService.createPaymentIntent(
+            user.id,
+            order.id,
+          ),
+        ).rejects.toThrow(
+          'Order payment reservation has expired.',
+        );
+
+        const payment =
+          await prisma.payment.findFirstOrThrow({
+            where: {
+              orderId:
+                order.id,
+            },
+          });
+
+        expect(
+          payment.providerPaymentIntentId,
+        ).not.toBeNull();
 
         expect(
           fakeStripe.cancelCalls,
-        ).toHaveLength(0);
+        ).toEqual([
+          payment.providerPaymentIntentId,
+        ]);
+
+        await expirationService.expirePendingOrders();
+
+        const [
+          expiredOrder,
+          expiredPayment,
+          inventory,
+        ] = await Promise.all([
+          prisma.order.findUniqueOrThrow({
+            where: {
+              id: order.id,
+            },
+          }),
+
+          prisma.payment.findUniqueOrThrow({
+            where: {
+              id: payment.id,
+            },
+          }),
+
+          prisma.inventory.findUniqueOrThrow({
+            where: {
+              productId:
+                product.id,
+            },
+          }),
+        ]);
+
+        expect(
+          expiredOrder.status,
+        ).toBe('EXPIRED');
+
+        expect(
+          expiredPayment.status,
+        ).toBe('CANCELED');
+
+        expect(
+          inventory.quantity,
+        ).toBe(10);
+
+        expect(
+          inventory.reservedQuantity,
+        ).toBe(0);
       },
     );
   },

@@ -21,6 +21,27 @@ class FakeStripeRetryService {
   createCalls = 0;
   retrieveCalls: string[] = [];
 
+  private paymentIntentContext: {
+    paymentId: string;
+    orderId: string;
+    orderNumber: string;
+    amountInCents: number;
+    currency: string;
+  } | null = null;
+
+  setPaymentIntentContext(
+    context: {
+      paymentId: string;
+      orderId: string;
+      orderNumber: string;
+      amountInCents: number;
+      currency: string;
+    },
+  ) {
+    this.paymentIntentContext =
+      context;
+  }
+
   async createPaymentIntent(): Promise<Stripe.PaymentIntent> {
     this.createCalls += 1;
 
@@ -36,13 +57,36 @@ class FakeStripeRetryService {
       paymentIntentId,
     );
 
+    if (!this.paymentIntentContext) {
+      throw new Error(
+        'Fake Stripe payment context was not configured.',
+      );
+    }
+
     return {
       id: paymentIntentId,
       object: 'payment_intent',
+      amount:
+        this.paymentIntentContext
+          .amountInCents,
+      currency:
+        this.paymentIntentContext
+          .currency.toLowerCase(),
       client_secret:
         'secret_existing_retry',
       status:
         'requires_payment_method',
+      metadata: {
+        paymentId:
+          this.paymentIntentContext
+            .paymentId,
+        orderId:
+          this.paymentIntentContext
+            .orderId,
+        orderNumber:
+          this.paymentIntentContext
+            .orderNumber,
+      },
     } as Stripe.PaymentIntent;
   }
 }
@@ -254,6 +298,19 @@ describe('Payment retry (e2e)', () => {
             'The card was declined.',
         },
       });
+
+    fakeStripe.setPaymentIntentContext({
+      paymentId:
+        failedPayment.id,
+      orderId:
+        order.id,
+      orderNumber:
+        order.orderNumber,
+      amountInCents:
+        order.totalInCents,
+      currency:
+        order.currency,
+    });
 
     const response =
       await request(

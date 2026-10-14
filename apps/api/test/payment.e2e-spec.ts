@@ -31,10 +31,18 @@ interface FakePaymentIntentInput {
 
 interface FakePaymentIntent {
   id: string;
+  object: 'payment_intent';
+  amount: number;
+  currency: string;
   client_secret: string;
   status:
     | 'requires_payment_method'
     | 'processing';
+  metadata: {
+    paymentId: string;
+    orderId: string;
+    orderNumber: string;
+  };
 }
 
 class FakeStripeService {
@@ -89,9 +97,22 @@ class FakeStripeService {
 
     const intent: FakePaymentIntent = {
       id: `pi_fake_${input.paymentId}`,
+      object: 'payment_intent',
+      amount:
+        input.amountInCents,
+      currency:
+        input.currency.toLowerCase(),
       client_secret:
         `secret_${input.paymentId}`,
       status: this.nextStatus,
+      metadata: {
+        paymentId:
+          input.paymentId,
+        orderId:
+          input.orderId,
+        orderNumber:
+          input.orderNumber,
+      },
     };
 
     this.intentsByPaymentId.set(

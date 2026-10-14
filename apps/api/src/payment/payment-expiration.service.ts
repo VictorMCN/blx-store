@@ -9,6 +9,7 @@ import {
 } from '@nestjs/schedule';
 import type Stripe from 'stripe';
 import { PrismaService } from '../database/prisma.service.js';
+import { PaymentService } from './payment.service.js';
 import { StripeService } from './stripe.service.js';
 
 const EXPIRATION_BATCH_SIZE = 25;
@@ -25,6 +26,7 @@ export class PaymentExpirationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly stripeService: StripeService,
+    private readonly paymentService: PaymentService,
   ) {}
 
   @Cron(CronExpression.EVERY_MINUTE, {
@@ -102,8 +104,16 @@ export class PaymentExpirationService {
         },
         select: {
           id: true,
+          orderId: true,
           status: true,
+          amountInCents: true,
+          currency: true,
           providerPaymentIntentId: true,
+          order: {
+            select: {
+              orderNumber: true,
+            },
+          },
         },
       });
 
@@ -112,32 +122,31 @@ export class PaymentExpirationService {
         return false;
       }
 
-      if (
-        payment.status === 'CANCELED' ||
-        !payment.providerPaymentIntentId
-      ) {
+      if (payment.status === 'CANCELED') {
         continue;
       }
 
       const paymentIntent =
-        await this.stripeService.retrievePaymentIntent(
-          payment.providerPaymentIntentId,
-        );
+        payment.providerPaymentIntentId
+          ? await this.stripeService.retrievePaymentIntent(
+              payment.providerPaymentIntentId,
+            )
+          : await this.recoverUnlinkedPaymentIntent(
+              payment,
+            );
 
-      if (
-        paymentIntent.metadata.paymentId !==
-          payment.id ||
-        paymentIntent.metadata.orderId !==
-          orderId
-      ) {
-        throw new ConflictException(
-          'Stripe payment metadata does not match the stored payment.',
-        );
-      }
+      this.assertPaymentIntentMatches(
+        payment,
+        paymentIntent,
+      );
 
       if (
         paymentIntent.status === 'succeeded'
       ) {
+        await this.paymentService.reconcileSucceededPayment(
+          paymentIntent,
+        );
+
         return false;
       }
 
@@ -160,6 +169,11 @@ export class PaymentExpirationService {
           paymentIntent.id,
         );
 
+      this.assertPaymentIntentMatches(
+        payment,
+        canceledPaymentIntent,
+      );
+
       if (
         canceledPaymentIntent.status !==
         'canceled'
@@ -169,6 +183,59 @@ export class PaymentExpirationService {
     }
 
     return true;
+  }
+
+  private async recoverUnlinkedPaymentIntent(
+    payment: {
+      id: string;
+      orderId: string;
+      amountInCents: number;
+      currency: string;
+      order: {
+        orderNumber: string;
+      };
+    },
+  ): Promise<Stripe.PaymentIntent> {
+    const paymentIntent =
+      await this.stripeService.createPaymentIntent({
+        paymentId: payment.id,
+        orderId: payment.orderId,
+        orderNumber:
+          payment.order.orderNumber,
+        amountInCents:
+          payment.amountInCents,
+        currency:
+          payment.currency,
+      });
+
+    const linkedPayment =
+      await this.prisma.payment.updateMany({
+        where: {
+          id: payment.id,
+          OR: [
+            {
+              providerPaymentIntentId:
+                null,
+            },
+            {
+              providerPaymentIntentId:
+                paymentIntent.id,
+            },
+          ],
+        },
+        data: {
+          providerPaymentIntentId:
+            paymentIntent.id,
+        },
+      });
+
+    if (linkedPayment.count !== 1) {
+      throw new ConflictException(
+        'Payment attempt is already linked to a different provider payment.',
+      );
+    }
+
+    return paymentIntent;
   }
 
   private async finalizeExpiration(
@@ -240,14 +307,16 @@ export class PaymentExpirationService {
               const releasedInventory =
                 await transaction.inventory.updateMany({
                   where: {
-                    productId: item.productId,
+                    productId:
+                      item.productId,
                     reservedQuantity: {
                       gte: item.quantity,
                     },
                   },
                   data: {
                     reservedQuantity: {
-                      decrement: item.quantity,
+                      decrement:
+                        item.quantity,
                     },
                   },
                 });
@@ -303,6 +372,31 @@ export class PaymentExpirationService {
     }
   }
 
+  private assertPaymentIntentMatches(
+    payment: {
+      id: string;
+      orderId: string;
+      amountInCents: number;
+      currency: string;
+    },
+    paymentIntent: Stripe.PaymentIntent,
+  ): void {
+    if (
+      paymentIntent.amount !==
+        payment.amountInCents ||
+      paymentIntent.currency.toUpperCase() !==
+        payment.currency ||
+      paymentIntent.metadata.paymentId !==
+        payment.id ||
+      paymentIntent.metadata.orderId !==
+        payment.orderId
+    ) {
+      throw new ConflictException(
+        'Stripe payment data does not match the stored payment.',
+      );
+    }
+  }
+
   private isCancelablePaymentIntent(
     status: Stripe.PaymentIntent.Status,
   ): boolean {
@@ -311,7 +405,6 @@ export class PaymentExpirationService {
       case 'requires_confirmation':
       case 'requires_action':
       case 'requires_capture':
-      case 'processing':
         return true;
 
       default:
