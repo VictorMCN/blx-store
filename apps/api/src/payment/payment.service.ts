@@ -14,8 +14,7 @@ const MAX_TRANSACTION_ATTEMPTS = 3;
 export class PaymentService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly stripeService:
-      StripeService,
+    private readonly stripeService: StripeService,
   ) {}
 
   async createPaymentIntent(
@@ -52,6 +51,11 @@ export class PaymentService {
       );
     }
 
+    const providerStatus =
+      this.mapActiveProviderStatus(
+        paymentIntent.status,
+      );
+
     if (
       !payment.providerPaymentIntentId
     ) {
@@ -63,10 +67,27 @@ export class PaymentService {
           providerPaymentIntentId:
             paymentIntent.id,
           status:
-            paymentIntent.status ===
-            'processing'
-              ? 'PROCESSING'
-              : 'PENDING',
+            providerStatus ??
+            payment.status,
+        },
+      });
+    } else if (
+      providerStatus &&
+      providerStatus !== payment.status
+    ) {
+      await this.prisma.payment.update({
+        where: {
+          id: payment.id,
+        },
+        data: {
+          status: providerStatus,
+          ...(providerStatus ===
+          'PROCESSING'
+            ? {
+                failureCode: null,
+                failureMessage: null,
+              }
+            : {}),
         },
       });
     }
@@ -76,10 +97,8 @@ export class PaymentService {
         id: payment.id,
         provider: payment.provider,
         status:
-          paymentIntent.status ===
-          'processing'
-            ? 'PROCESSING'
-            : payment.status,
+          providerStatus ??
+          payment.status,
         amountInCents:
           payment.amountInCents,
         currency: payment.currency,
@@ -136,7 +155,8 @@ export class PaymentService {
   ) {
     for (
       let attempt = 1;
-      attempt <= MAX_TRANSACTION_ATTEMPTS;
+      attempt <=
+      MAX_TRANSACTION_ATTEMPTS;
       attempt += 1
     ) {
       try {
@@ -187,12 +207,23 @@ export class PaymentService {
               await transaction.payment.findFirst({
                 where: {
                   orderId: order.id,
-                  status: {
-                    in: [
-                      'PENDING',
-                      'PROCESSING',
-                    ],
-                  },
+                  OR: [
+                    {
+                      status: {
+                        in: [
+                          'PENDING',
+                          'PROCESSING',
+                        ],
+                      },
+                    },
+                    {
+                      status: 'FAILED',
+                      providerPaymentIntentId:
+                        {
+                          not: null,
+                        },
+                    },
+                  ],
                 },
                 select: {
                   id: true,
@@ -285,7 +316,8 @@ export class PaymentService {
   ) {
     for (
       let attempt = 1;
-      attempt <= MAX_TRANSACTION_ATTEMPTS;
+      attempt <=
+      MAX_TRANSACTION_ATTEMPTS;
       attempt += 1
     ) {
       try {
@@ -354,8 +386,8 @@ export class PaymentService {
             }
 
             for (
-              const item of payment.order
-                .items
+              const item of
+                payment.order.items
             ) {
               if (!item.productId) {
                 throw new ConflictException(
@@ -464,7 +496,8 @@ export class PaymentService {
     }
 
     if (
-      payment.status === 'SUCCEEDED'
+      payment.status === 'SUCCEEDED' ||
+      payment.status === 'CANCELED'
     ) {
       return;
     }
@@ -473,7 +506,11 @@ export class PaymentService {
       where: {
         id: payment.id,
         status: {
-          not: 'SUCCEEDED',
+          in: [
+            'PENDING',
+            'PROCESSING',
+            'FAILED',
+          ],
         },
       },
       data: {
@@ -497,7 +534,8 @@ export class PaymentService {
     }
 
     if (
-      payment.status === 'SUCCEEDED'
+      payment.status === 'SUCCEEDED' ||
+      payment.status === 'CANCELED'
     ) {
       return;
     }
@@ -506,7 +544,11 @@ export class PaymentService {
       where: {
         id: payment.id,
         status: {
-          not: 'SUCCEEDED',
+          in: [
+            'PENDING',
+            'PROCESSING',
+            'FAILED',
+          ],
         },
       },
       data: {
@@ -545,7 +587,12 @@ export class PaymentService {
       where: {
         id: payment.id,
         status: {
-          not: 'SUCCEEDED',
+          in: [
+            'PENDING',
+            'PROCESSING',
+            'FAILED',
+            'CANCELED',
+          ],
         },
       },
       data: {
@@ -614,6 +661,23 @@ export class PaymentService {
       throw new ConflictException(
         'Stripe payment data does not match the stored payment.',
       );
+    }
+  }
+
+  private mapActiveProviderStatus(
+    status: Stripe.PaymentIntent.Status,
+  ): 'PENDING' | 'PROCESSING' | null {
+    switch (status) {
+      case 'requires_payment_method':
+      case 'requires_confirmation':
+      case 'requires_action':
+        return 'PENDING';
+
+      case 'processing':
+        return 'PROCESSING';
+
+      default:
+        return null;
     }
   }
 
