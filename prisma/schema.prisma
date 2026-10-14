@@ -17,6 +17,16 @@ enum AccountType {
   BUSINESS
 }
 
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELED
+  EXPIRED
+}
+
 model User {
   id              String           @id @default(uuid()) @db.Uuid
   email           String           @unique @db.VarChar(255)
@@ -29,6 +39,7 @@ model User {
   customerProfile CustomerProfile?
   sessions        Session[]
   cart            Cart?
+  orders          Order[]
 }
 
 model Session {
@@ -108,10 +119,11 @@ model Product {
   createdAt    DateTime @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime @updatedAt @db.Timestamptz(3)
 
-  category  Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  images    ProductImage[]
-  inventory Inventory?
-  cartItems CartItem[]
+  category   Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  images     ProductImage[]
+  inventory  Inventory?
+  cartItems  CartItem[]
+  orderItems OrderItem[]
 
   @@index([categoryId])
   @@index([isActive])
@@ -166,5 +178,66 @@ model CartItem {
 
   @@unique([cartId, productId])
   @@index([cartId])
+  @@index([productId])
+}
+
+model Order {
+  id          String      @id @default(uuid()) @db.Uuid
+  orderNumber String      @unique @db.VarChar(30)
+  userId      String?     @db.Uuid
+  status      OrderStatus @default(PENDING_PAYMENT)
+  currency    String      @db.VarChar(3)
+
+  subtotalInCents Int
+  shippingInCents Int @default(0)
+  totalInCents    Int
+
+  customerAccountType AccountType
+  customerName        String      @db.VarChar(200)
+  customerEmail       String      @db.VarChar(255)
+  customerTaxId       String      @db.VarChar(20)
+  customerPhone       String?     @db.VarChar(30)
+
+  shippingRecipientName String  @db.VarChar(150)
+  shippingStreet        String  @db.VarChar(200)
+  shippingNumber        String  @db.VarChar(30)
+  shippingComplement    String? @db.VarChar(120)
+  shippingNeighborhood  String? @db.VarChar(120)
+  shippingCity          String  @db.VarChar(120)
+  shippingState         String  @db.VarChar(120)
+  shippingPostalCode    String  @db.VarChar(20)
+  shippingCountry       String  @db.VarChar(2)
+
+  reservationExpiresAt DateTime @db.Timestamptz(3)
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @db.Timestamptz(3)
+
+  user  User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items OrderItem[]
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@index([reservationExpiresAt])
+}
+
+model OrderItem {
+  id        String  @id @default(uuid()) @db.Uuid
+  orderId   String  @db.Uuid
+  productId String? @db.Uuid
+
+  productName String @db.VarChar(180)
+  productSlug String @db.VarChar(200)
+  productSku  String @db.VarChar(80)
+
+  unitPriceInCents Int
+  quantity         Int
+  lineTotalInCents Int
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
   @@index([productId])
 }
