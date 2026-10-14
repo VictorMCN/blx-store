@@ -27,6 +27,18 @@ enum OrderStatus {
   EXPIRED
 }
 
+enum PaymentProvider {
+  STRIPE
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
 model User {
   id              String           @id @default(uuid()) @db.Uuid
   email           String           @unique @db.VarChar(255)
@@ -212,8 +224,9 @@ model Order {
   createdAt            DateTime @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime @updatedAt @db.Timestamptz(3)
 
-  user  User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
-  items OrderItem[]
+  user     User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  items    OrderItem[]
+  payments Payment[]
 
   @@index([userId, createdAt])
   @@index([status])
@@ -240,4 +253,28 @@ model OrderItem {
 
   @@index([orderId])
   @@index([productId])
+}
+
+model Payment {
+  id       String          @id @default(uuid()) @db.Uuid
+  orderId  String          @db.Uuid
+  provider PaymentProvider @default(STRIPE)
+  status   PaymentStatus   @default(PENDING)
+
+  amountInCents Int
+  currency      String @db.VarChar(3)
+
+  providerPaymentIntentId String? @unique @db.VarChar(255)
+
+  failureCode    String? @db.VarChar(120)
+  failureMessage String? @db.VarChar(500)
+
+  succeededAt DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+
+  @@index([orderId, createdAt])
+  @@index([status])
 }
