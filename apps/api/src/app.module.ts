@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
@@ -8,6 +9,7 @@ import { CatalogModule } from './catalog/catalog.module.js';
 import { CustomerAccountModule } from './customer-account/customer-account.module.js';
 import { PrismaModule } from './database/prisma.module.js';
 import { OrderModule } from './order/order.module.js';
+import { PaymentModule } from './payment/payment.module.js';
 
 @Module({
   imports: [
@@ -15,12 +17,14 @@ import { OrderModule } from './order/order.module.js';
       isGlobal: true,
       envFilePath: ['.env', '../../.env'],
     }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
     CustomerAccountModule,
     CatalogModule,
     CartModule,
     OrderModule,
+    PaymentModule,
   ],
   controllers: [AppController],
   providers: [AppService],
