@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module.js';
 import { PrismaModule } from '../database/prisma.module.js';
 import { PaymentController } from './payment.controller.js';
 import { PaymentService } from './payment.service.js';
+import { StripeWebhookController } from './stripe-webhook.controller.js';
 import { StripeService } from './stripe.service.js';
 
 @Module({
@@ -10,7 +11,10 @@ import { StripeService } from './stripe.service.js';
     AuthModule,
     PrismaModule,
   ],
-  controllers: [PaymentController],
+  controllers: [
+    PaymentController,
+    StripeWebhookController,
+  ],
   providers: [
     PaymentService,
     StripeService,

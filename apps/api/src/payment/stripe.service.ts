@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -68,6 +69,36 @@ export class StripeService {
     } catch {
       throw new ServiceUnavailableException(
         'Payment provider request failed.',
+      );
+    }
+  }
+
+  constructWebhookEvent(
+    rawBody: Buffer,
+    signature: string,
+  ): Stripe.Event {
+    const webhookSecret =
+      this.configService.get<string>(
+        'STRIPE_WEBHOOK_SECRET',
+      );
+
+    if (!webhookSecret) {
+      throw new ServiceUnavailableException(
+        'Stripe webhook is not configured.',
+      );
+    }
+
+    const stripe = this.getClient();
+
+    try {
+      return stripe.webhooks.constructEvent(
+        rawBody,
+        signature,
+        webhookSecret,
+      );
+    } catch {
+      throw new BadRequestException(
+        'Invalid Stripe webhook signature.',
       );
     }
   }

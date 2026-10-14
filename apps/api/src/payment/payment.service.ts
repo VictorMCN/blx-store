@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import type Stripe from 'stripe';
 import { PrismaService } from '../database/prisma.service.js';
 import { StripeService } from './stripe.service.js';
 
@@ -86,6 +87,47 @@ export class PaymentService {
       clientSecret:
         paymentIntent.client_secret,
     };
+  }
+
+  async handleStripeWebhook(
+    event: Stripe.Event,
+  ): Promise<void> {
+    switch (event.type) {
+      case 'payment_intent.succeeded':
+        await this.handlePaymentSucceeded(
+          event.data
+            .object as Stripe.PaymentIntent,
+          new Date(
+            event.created * 1000,
+          ),
+        );
+        return;
+
+      case 'payment_intent.processing':
+        await this.handlePaymentStatus(
+          event.data
+            .object as Stripe.PaymentIntent,
+          'PROCESSING',
+        );
+        return;
+
+      case 'payment_intent.payment_failed':
+        await this.handlePaymentFailed(
+          event.data
+            .object as Stripe.PaymentIntent,
+        );
+        return;
+
+      case 'payment_intent.canceled':
+        await this.handlePaymentCanceled(
+          event.data
+            .object as Stripe.PaymentIntent,
+        );
+        return;
+
+      default:
+        return;
+    }
   }
 
   private async preparePaymentAttempt(
@@ -235,6 +277,344 @@ export class PaymentService {
     throw new ConflictException(
       'Payment could not be initialized. Please try again.',
     );
+  }
+
+  private async handlePaymentSucceeded(
+    paymentIntent: Stripe.PaymentIntent,
+    succeededAt: Date,
+  ) {
+    for (
+      let attempt = 1;
+      attempt <= MAX_TRANSACTION_ATTEMPTS;
+      attempt += 1
+    ) {
+      try {
+        await this.prisma.$transaction(
+          async (transaction) => {
+            const payment =
+              await transaction.payment.findUnique({
+                where: {
+                  providerPaymentIntentId:
+                    paymentIntent.id,
+                },
+                select: {
+                  id: true,
+                  orderId: true,
+                  status: true,
+                  amountInCents: true,
+                  currency: true,
+                  order: {
+                    select: {
+                      id: true,
+                      status: true,
+                      items: {
+                        select: {
+                          productId: true,
+                          quantity: true,
+                        },
+                      },
+                    },
+                  },
+                },
+              });
+
+            if (!payment) {
+              return;
+            }
+
+            this.assertPaymentIntentMatches(
+              payment,
+              paymentIntent,
+            );
+
+            if (
+              payment.status ===
+              'SUCCEEDED'
+            ) {
+              return;
+            }
+
+            if (
+              payment.order.status !==
+              'PENDING_PAYMENT'
+            ) {
+              await transaction.payment.update({
+                where: {
+                  id: payment.id,
+                },
+                data: {
+                  status: 'SUCCEEDED',
+                  succeededAt,
+                  failureCode: null,
+                  failureMessage: null,
+                },
+              });
+
+              return;
+            }
+
+            for (
+              const item of payment.order
+                .items
+            ) {
+              if (!item.productId) {
+                throw new ConflictException(
+                  'Reserved product is no longer available.',
+                );
+              }
+
+              const inventory =
+                await transaction.inventory.findUnique({
+                  where: {
+                    productId:
+                      item.productId,
+                  },
+                  select: {
+                    id: true,
+                    quantity: true,
+                    reservedQuantity:
+                      true,
+                  },
+                });
+
+              if (
+                !inventory ||
+                inventory.quantity <
+                  item.quantity ||
+                inventory.reservedQuantity <
+                  item.quantity
+              ) {
+                throw new ConflictException(
+                  'Inventory reservation is inconsistent.',
+                );
+              }
+
+              await transaction.inventory.update({
+                where: {
+                  id: inventory.id,
+                },
+                data: {
+                  quantity: {
+                    decrement:
+                      item.quantity,
+                  },
+                  reservedQuantity: {
+                    decrement:
+                      item.quantity,
+                  },
+                },
+              });
+            }
+
+            await transaction.payment.update({
+              where: {
+                id: payment.id,
+              },
+              data: {
+                status: 'SUCCEEDED',
+                succeededAt,
+                failureCode: null,
+                failureMessage: null,
+              },
+            });
+
+            await transaction.order.update({
+              where: {
+                id: payment.order.id,
+              },
+              data: {
+                status: 'PAID',
+              },
+            });
+          },
+          {
+            isolationLevel:
+              'Serializable',
+          },
+        );
+
+        return;
+      } catch (error) {
+        if (
+          this.isRetryableTransactionError(
+            error,
+          ) &&
+          attempt <
+            MAX_TRANSACTION_ATTEMPTS
+        ) {
+          continue;
+        }
+
+        throw error;
+      }
+    }
+  }
+
+  private async handlePaymentStatus(
+    paymentIntent: Stripe.PaymentIntent,
+    status: 'PROCESSING',
+  ) {
+    const payment =
+      await this.findPaymentForWebhook(
+        paymentIntent,
+      );
+
+    if (!payment) {
+      return;
+    }
+
+    if (
+      payment.status === 'SUCCEEDED'
+    ) {
+      return;
+    }
+
+    await this.prisma.payment.updateMany({
+      where: {
+        id: payment.id,
+        status: {
+          not: 'SUCCEEDED',
+        },
+      },
+      data: {
+        status,
+        failureCode: null,
+        failureMessage: null,
+      },
+    });
+  }
+
+  private async handlePaymentFailed(
+    paymentIntent: Stripe.PaymentIntent,
+  ) {
+    const payment =
+      await this.findPaymentForWebhook(
+        paymentIntent,
+      );
+
+    if (!payment) {
+      return;
+    }
+
+    if (
+      payment.status === 'SUCCEEDED'
+    ) {
+      return;
+    }
+
+    await this.prisma.payment.updateMany({
+      where: {
+        id: payment.id,
+        status: {
+          not: 'SUCCEEDED',
+        },
+      },
+      data: {
+        status: 'FAILED',
+        failureCode:
+          paymentIntent
+            .last_payment_error
+            ?.code ?? null,
+        failureMessage:
+          paymentIntent
+            .last_payment_error
+            ?.message ?? null,
+      },
+    });
+  }
+
+  private async handlePaymentCanceled(
+    paymentIntent: Stripe.PaymentIntent,
+  ) {
+    const payment =
+      await this.findPaymentForWebhook(
+        paymentIntent,
+      );
+
+    if (!payment) {
+      return;
+    }
+
+    if (
+      payment.status === 'SUCCEEDED'
+    ) {
+      return;
+    }
+
+    await this.prisma.payment.updateMany({
+      where: {
+        id: payment.id,
+        status: {
+          not: 'SUCCEEDED',
+        },
+      },
+      data: {
+        status: 'CANCELED',
+        failureCode:
+          paymentIntent
+            .cancellation_reason ??
+          'canceled',
+        failureMessage:
+          'Payment was canceled by the payment provider.',
+      },
+    });
+  }
+
+  private async findPaymentForWebhook(
+    paymentIntent: Stripe.PaymentIntent,
+  ) {
+    const payment =
+      await this.prisma.payment.findUnique({
+        where: {
+          providerPaymentIntentId:
+            paymentIntent.id,
+        },
+        select: {
+          id: true,
+          orderId: true,
+          status: true,
+          amountInCents: true,
+          currency: true,
+        },
+      });
+
+    if (!payment) {
+      return null;
+    }
+
+    this.assertPaymentIntentMatches(
+      payment,
+      paymentIntent,
+    );
+
+    return payment;
+  }
+
+  private assertPaymentIntentMatches(
+    payment: {
+      id: string;
+      orderId: string;
+      amountInCents: number;
+      currency: string;
+    },
+    paymentIntent: Stripe.PaymentIntent,
+  ) {
+    const currency =
+      paymentIntent.currency.toUpperCase();
+
+    if (
+      paymentIntent.amount !==
+        payment.amountInCents ||
+      currency !== payment.currency ||
+      paymentIntent.metadata.paymentId !==
+        payment.id ||
+      paymentIntent.metadata.orderId !==
+        payment.orderId
+    ) {
+      throw new ConflictException(
+        'Stripe payment data does not match the stored payment.',
+      );
+    }
   }
 
   private isRetryableTransactionError(
