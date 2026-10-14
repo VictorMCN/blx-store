@@ -8,6 +8,7 @@ import { CatalogModule } from './catalog/catalog.module.js';
 import { CustomerAccountModule } from './customer-account/customer-account.module.js';
 import { PrismaModule } from './database/prisma.module.js';
 import { OrderModule } from './order/order.module.js';
+import { PaymentModule } from './payment/payment.module.js';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { OrderModule } from './order/order.module.js';
     CatalogModule,
     CartModule,
     OrderModule,
+    PaymentModule,
   ],
   controllers: [AppController],
   providers: [AppService],
