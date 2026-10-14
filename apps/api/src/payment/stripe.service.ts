@@ -73,6 +73,27 @@ export class StripeService {
     }
   }
 
+  async cancelPaymentIntent(
+    paymentIntentId: string,
+  ) {
+    const stripe = this.getClient();
+
+    try {
+      return await stripe.paymentIntents.cancel(
+        paymentIntentId,
+        {},
+        {
+          idempotencyKey:
+            `expire:${paymentIntentId}`,
+        },
+      );
+    } catch {
+      throw new ServiceUnavailableException(
+        'Payment provider request failed.',
+      );
+    }
+  }
+
   constructWebhookEvent(
     rawBody: Buffer,
     signature: string,

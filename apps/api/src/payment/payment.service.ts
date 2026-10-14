@@ -45,6 +45,11 @@ export class PaymentService {
             },
           );
 
+    await this.ensureOrderStillAcceptsPayment(
+      payment.order.id,
+      paymentIntent,
+    );
+
     if (!paymentIntent.client_secret) {
       throw new ServiceUnavailableException(
         'Payment provider did not return a client secret.',
@@ -367,6 +372,15 @@ export class PaymentService {
             }
 
             if (
+              payment.order.status === 'EXPIRED' ||
+              payment.order.status === 'CANCELED'
+            ) {
+              throw new ConflictException(
+                'Order can no longer be completed by this payment.',
+              );
+            }
+
+            if (
               payment.order.status !==
               'PENDING_PAYMENT'
             ) {
@@ -480,6 +494,60 @@ export class PaymentService {
         throw error;
       }
     }
+  }
+
+  private async ensureOrderStillAcceptsPayment(
+    orderId: string,
+    paymentIntent: Stripe.PaymentIntent,
+  ): Promise<void> {
+    const order =
+      await this.prisma.order.findUnique({
+        where: {
+          id: orderId,
+        },
+        select: {
+          status: true,
+          reservationExpiresAt: true,
+        },
+      });
+
+    if (
+      order &&
+      order.status === 'PENDING_PAYMENT' &&
+      order.reservationExpiresAt >
+        new Date()
+    ) {
+      return;
+    }
+
+    if (
+      paymentIntent.status !== 'succeeded' &&
+      paymentIntent.status !== 'canceled'
+    ) {
+      try {
+        await this.stripeService.cancelPaymentIntent(
+          paymentIntent.id,
+        );
+      } catch {
+        // The client secret must not be returned once
+        // the order is no longer eligible for payment.
+      }
+    }
+
+    if (
+      order?.status === 'EXPIRED' ||
+      (order &&
+        order.reservationExpiresAt <=
+          new Date())
+    ) {
+      throw new ConflictException(
+        'Order payment reservation has expired.',
+      );
+    }
+
+    throw new ConflictException(
+      'Order is not awaiting payment.',
+    );
   }
 
   private async handlePaymentStatus(
