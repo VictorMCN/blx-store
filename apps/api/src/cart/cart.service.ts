@@ -193,15 +193,22 @@ export class CartService {
               quantity: targetQuantity,
             },
           });
-
-          return;
+        } else {
+          await transaction.cartItem.create({
+            data: {
+              cartId: cart.id,
+              productId: product.id,
+              quantity: dto.quantity,
+            },
+          });
         }
 
-        await transaction.cartItem.create({
+        await transaction.cart.update({
+          where: {
+            id: cart.id,
+          },
           data: {
-            cartId: cart.id,
-            productId: product.id,
-            quantity: dto.quantity,
+            updatedAt: new Date(),
           },
         });
       },
@@ -292,6 +299,15 @@ export class CartService {
             quantity: dto.quantity,
           },
         });
+
+        await transaction.cart.update({
+          where: {
+            id: cart.id,
+          },
+          data: {
+            updatedAt: new Date(),
+          },
+        });
       },
     );
 
@@ -302,35 +318,48 @@ export class CartService {
     userId: string,
     productId: string,
   ) {
-    const cart =
-      await this.prisma.cart.findUnique({
-        where: {
-          userId,
-        },
-        select: {
-          id: true,
-        },
-      });
+    await this.prisma.$transaction(
+      async (transaction) => {
+        const cart =
+          await transaction.cart.findUnique({
+            where: {
+              userId,
+            },
+            select: {
+              id: true,
+            },
+          });
 
-    if (!cart) {
-      throw new NotFoundException(
-        'Cart item not found.',
-      );
-    }
+        if (!cart) {
+          throw new NotFoundException(
+            'Cart item not found.',
+          );
+        }
 
-    const result =
-      await this.prisma.cartItem.deleteMany({
-        where: {
-          cartId: cart.id,
-          productId,
-        },
-      });
+        const result =
+          await transaction.cartItem.deleteMany({
+            where: {
+              cartId: cart.id,
+              productId,
+            },
+          });
 
-    if (result.count === 0) {
-      throw new NotFoundException(
-        'Cart item not found.',
-      );
-    }
+        if (result.count === 0) {
+          throw new NotFoundException(
+            'Cart item not found.',
+          );
+        }
+
+        await transaction.cart.update({
+          where: {
+            id: cart.id,
+          },
+          data: {
+            updatedAt: new Date(),
+          },
+        });
+      },
+    );
   }
 
   async clearCart(userId: string) {
