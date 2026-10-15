@@ -29,6 +29,11 @@ export function ProductCard({
   const image =
     product.images[0]?.url ?? null;
 
+  const specificationSummary =
+    product.description
+      .split("\n")[0]
+      ?.trim();
+
   async function addToCart() {
     if (!user) {
       router.push("/login");
@@ -44,14 +49,18 @@ export function ProductCard({
         {
           method: "POST",
           body: JSON.stringify({
-            productId: product.id,
+            productId:
+              product.id,
             quantity: 1,
           }),
         },
       );
 
       await refreshCart();
-      setMessage("Added to cart");
+
+      setMessage(
+        "Added to cart",
+      );
     } catch (error) {
       setMessage(
         error instanceof Error
@@ -70,7 +79,7 @@ export function ProductCard({
         className="relative block overflow-hidden rounded-xl bg-[#f5f6f7]"
       >
         <div
-          className="aspect-[1/1] bg-contain bg-center bg-no-repeat p-6 transition duration-300 group-hover:scale-[1.025]"
+          className="aspect-square bg-contain bg-center bg-no-repeat p-6 transition duration-300 group-hover:scale-[1.025]"
           style={
             image
               ? {
@@ -86,7 +95,8 @@ export function ProductCard({
           )}
         </div>
 
-        {!product.availability.inStock && (
+        {!product.availability
+          .inStock && (
           <span className="absolute left-3 top-3 rounded-md bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500 shadow-sm">
             Out of stock
           </span>
@@ -109,6 +119,12 @@ export function ProductCard({
           SKU {product.sku}
         </p>
 
+        {specificationSummary && (
+          <p className="mt-3 line-clamp-2 min-h-10 text-xs leading-5 text-slate-500">
+            {specificationSummary}
+          </p>
+        )}
+
         <div className="mt-auto pt-4">
           <p className="text-xl font-bold tracking-tight text-slate-950">
             {formatMoney(
@@ -119,12 +135,14 @@ export function ProductCard({
 
           <p
             className={`mt-1 text-xs font-medium ${
-              product.availability.inStock
+              product.availability
+                .inStock
                 ? "text-emerald-600"
                 : "text-slate-400"
             }`}
           >
-            {product.availability.inStock
+            {product.availability
+              .inStock
               ? "In stock"
               : "Currently unavailable"}
           </p>
@@ -136,7 +154,8 @@ export function ProductCard({
             }
             disabled={
               adding ||
-              !product.availability.inStock
+              !product.availability
+                .inStock
             }
             className="mt-4 w-full rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:border-slate-950 hover:bg-slate-950 hover:text-white disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
           >

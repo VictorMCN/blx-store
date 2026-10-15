@@ -31,8 +31,10 @@ function ProductDetailContent() {
   const [product, setProduct] =
     useState<Product | null>(null);
 
-  const [selectedImage, setSelectedImage] =
-    useState(0);
+  const [
+    selectedImage,
+    setSelectedImage,
+  ] = useState(0);
 
   const [quantity, setQuantity] =
     useState(1);
@@ -61,7 +63,10 @@ function ProductDetailContent() {
           );
 
         if (!cancelled) {
-          setProduct(response.product);
+          setProduct(
+            response.product,
+          );
+
           setError(null);
         }
       } catch (caught) {
@@ -105,13 +110,15 @@ function ProductDetailContent() {
         {
           method: "POST",
           body: JSON.stringify({
-            productId: product.id,
+            productId:
+              product.id,
             quantity,
           }),
         },
       );
 
       await refreshCart();
+
       router.push("/cart");
     } catch (caught) {
       setError(
@@ -122,6 +129,24 @@ function ProductDetailContent() {
     } finally {
       setAdding(false);
     }
+  }
+
+  function decreaseQuantity() {
+    setQuantity((current) =>
+      Math.max(
+        1,
+        current - 1,
+      ),
+    );
+  }
+
+  function increaseQuantity() {
+    setQuantity((current) =>
+      Math.min(
+        99,
+        current + 1,
+      ),
+    );
   }
 
   if (loading) {
@@ -157,162 +182,283 @@ function ProductDetailContent() {
   }
 
   const image =
-    product.images[selectedImage]
-      ?.url ?? null;
+    product.images[
+      selectedImage
+    ]?.url ?? null;
 
   return (
-    <main className="mx-auto max-w-7xl px-5 py-12 lg:px-8">
-      <Link
-        href="/products"
-        className="text-sm font-semibold text-blue-600"
-      >
-        ← Products
-      </Link>
-
-      <div className="mt-6 grid gap-10 lg:grid-cols-2">
-        <div>
-          <div
-            className="aspect-square overflow-hidden rounded-3xl border border-slate-200 bg-slate-100 bg-contain bg-center bg-no-repeat"
-            style={
-              image
-                ? {
-                    backgroundImage: `url("${image}")`,
-                  }
-                : undefined
-            }
+    <main className="bg-white">
+      <div className="mx-auto max-w-7xl px-5 py-8 lg:px-8 lg:py-10">
+        <nav className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+          <Link
+            href="/"
+            className="transition hover:text-blue-600"
           >
-            {!image && (
-              <div className="flex h-full items-center justify-center font-medium text-slate-400">
-                BLX Product
-              </div>
-            )}
-          </div>
+            Home
+          </Link>
 
-          {product.images.length > 1 && (
-            <div className="mt-4 flex gap-3 overflow-x-auto">
-              {product.images.map(
-                (item, index) => (
-                  <button
-                    key={
-                      item.id ??
-                      `${item.url}-${index}`
+          <span>/</span>
+
+          <Link
+            href="/products"
+            className="transition hover:text-blue-600"
+          >
+            Products
+          </Link>
+
+          <span>/</span>
+
+          <span className="text-slate-600">
+            {product.category.name}
+          </span>
+        </nav>
+
+        <div className="mt-8 grid gap-10 lg:grid-cols-[minmax(0,1.08fr)_minmax(400px,0.92fr)] lg:gap-16">
+          <section>
+            <div
+              className="relative aspect-square overflow-hidden rounded-2xl border border-slate-200 bg-[#f6f7f8] bg-contain bg-center bg-no-repeat"
+              style={
+                image
+                  ? {
+                      backgroundImage: `url("${image}")`,
                     }
-                    type="button"
-                    onClick={() =>
-                      setSelectedImage(
-                        index,
-                      )
-                    }
-                    className={`h-20 w-20 shrink-0 rounded-xl border bg-slate-100 bg-cover bg-center ${
-                      selectedImage ===
-                      index
-                        ? "border-blue-500"
-                        : "border-slate-200"
-                    }`}
-                    style={{
-                      backgroundImage: `url("${item.url}")`,
-                    }}
-                    aria-label={`View product image ${index + 1}`}
-                  />
-                ),
+                  : undefined
+              }
+            >
+              {!image && (
+                <div className="flex h-full items-center justify-center text-lg font-semibold text-slate-300">
+                  BLX Product
+                </div>
+              )}
+
+              {product.availability
+                .inStock && (
+                <span className="absolute left-4 top-4 rounded-lg border border-emerald-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-emerald-700 shadow-sm">
+                  In stock
+                </span>
               )}
             </div>
-          )}
-        </div>
 
-        <div className="lg:py-4">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-blue-600">
-            {product.category.name}
-          </p>
-
-          <h1 className="mt-3 text-4xl font-bold tracking-tight">
-            {product.name}
-          </h1>
-
-          <p className="mt-3 text-sm text-slate-500">
-            SKU {product.sku}
-          </p>
-
-          <p className="mt-7 text-3xl font-bold">
-            {formatMoney(
-              product.priceInCents,
-              product.currency,
+            {product.images.length >
+              1 && (
+              <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
+                {product.images.map(
+                  (
+                    item,
+                    index,
+                  ) => (
+                    <button
+                      key={
+                        item.id ??
+                        `${item.url}-${index}`
+                      }
+                      type="button"
+                      onClick={() =>
+                        setSelectedImage(
+                          index,
+                        )
+                      }
+                      className={`h-20 w-20 shrink-0 rounded-xl border bg-[#f6f7f8] bg-contain bg-center bg-no-repeat transition ${
+                        selectedImage ===
+                        index
+                          ? "border-blue-500 ring-2 ring-blue-500/10"
+                          : "border-slate-200 hover:border-slate-400"
+                      }`}
+                      style={{
+                        backgroundImage: `url("${item.url}")`,
+                      }}
+                      aria-label={`View product image ${
+                        index + 1
+                      }`}
+                    />
+                  ),
+                )}
+              </div>
             )}
-          </p>
+          </section>
 
-          <p
-            className={`mt-2 text-sm font-semibold ${
-              product.availability.inStock
-                ? "text-emerald-600"
-                : "text-rose-600"
-            }`}
-          >
-            {product.availability.inStock
-              ? "Available now"
-              : "Currently out of stock"}
-          </p>
-
-          <div className="mt-8 border-t border-slate-200 pt-8">
-            <h2 className="font-semibold">
-              Product details
-            </h2>
-
-            <p className="mt-3 whitespace-pre-line leading-7 text-slate-600">
-              {product.description}
+          <section className="lg:py-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-600">
+              {
+                product.category
+                  .name
+              }
             </p>
-          </div>
 
-          <div className="mt-8 flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-sm">
-              <span className="font-medium">
-                Quantity
+            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-4xl">
+              {product.name}
+            </h1>
+
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-400">
+              <span>
+                SKU {product.sku}
               </span>
 
-              <input
-                type="number"
-                min={1}
-                max={99}
-                value={quantity}
-                onChange={(event) =>
-                  setQuantity(
-                    Math.max(
-                      1,
-                      Math.min(
-                        99,
-                        Number(
-                          event.target
-                            .value,
-                        ) || 1,
-                      ),
-                    ),
-                  )
-                }
-                className="w-20 rounded-lg border border-slate-300 px-3 py-2"
-              />
-            </label>
+              <span className="hidden h-1 w-1 rounded-full bg-slate-300 sm:block" />
 
-            <button
-              type="button"
-              onClick={() =>
-                void addToCart()
-              }
-              disabled={
-                adding ||
-                !product.availability.inStock
-              }
-              className="rounded-xl bg-slate-950 px-6 py-3 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:bg-slate-300"
-            >
-              {adding
-                ? "Adding..."
-                : "Add to cart"}
-            </button>
-          </div>
+              <span>
+                BLX Store catalog
+              </span>
+            </div>
 
-          {error && (
-            <p className="mt-4 text-sm text-rose-600">
-              {error}
-            </p>
-          )}
+            <div className="mt-8 border-y border-slate-200 py-6">
+              <p className="text-sm text-slate-500">
+                Price
+              </p>
+
+              <p className="mt-1 text-4xl font-bold tracking-[-0.035em] text-slate-950">
+                {formatMoney(
+                  product.priceInCents,
+                  product.currency,
+                )}
+              </p>
+
+              <p
+                className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                  product.availability
+                    .inStock
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-rose-50 text-rose-700"
+                }`}
+              >
+                {product.availability
+                  .inStock
+                  ? "Available for purchase"
+                  : "Currently out of stock"}
+              </p>
+            </div>
+
+            <div className="mt-7">
+              <h2 className="text-sm font-semibold text-slate-900">
+                About this product
+              </h2>
+
+              <p className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-600">
+                {product.description}
+              </p>
+            </div>
+
+            <div className="mt-8 rounded-2xl border border-slate-200 bg-[#fafafa] p-5">
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-end">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                    Quantity
+                  </p>
+
+                  <div className="mt-2 inline-flex h-11 items-center overflow-hidden rounded-lg border border-slate-300 bg-white">
+                    <button
+                      type="button"
+                      onClick={
+                        decreaseQuantity
+                      }
+                      disabled={
+                        quantity <= 1
+                      }
+                      className="h-full w-11 text-lg text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                      aria-label="Decrease quantity"
+                    >
+                      −
+                    </button>
+
+                    <input
+                      type="number"
+                      min={1}
+                      max={99}
+                      value={quantity}
+                      onChange={(
+                        event,
+                      ) =>
+                        setQuantity(
+                          Math.max(
+                            1,
+                            Math.min(
+                              99,
+                              Number(
+                                event
+                                  .target
+                                  .value,
+                              ) ||
+                                1,
+                            ),
+                          ),
+                        )
+                      }
+                      className="h-full w-14 border-x border-slate-200 bg-white text-center text-sm font-semibold outline-none"
+                      aria-label="Product quantity"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={
+                        increaseQuantity
+                      }
+                      disabled={
+                        quantity >= 99
+                      }
+                      className="h-full w-11 text-lg text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300"
+                      aria-label="Increase quantity"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    void addToCart()
+                  }
+                  disabled={
+                    adding ||
+                    !product
+                      .availability
+                      .inStock
+                  }
+                  className="h-12 flex-1 rounded-xl bg-blue-600 px-6 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {adding
+                    ? "Adding to cart..."
+                    : product
+                          .availability
+                          .inStock
+                      ? "Add to cart"
+                      : "Out of stock"}
+                </button>
+              </div>
+
+              {error && (
+                <p className="mt-4 text-sm text-rose-600">
+                  {error}
+                </p>
+              )}
+            </div>
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 p-4">
+                <p className="text-sm font-semibold text-slate-800">
+                  Secure payment
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Checkout payments are
+                  processed through
+                  Stripe.
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 p-4">
+                <p className="text-sm font-semibold text-slate-800">
+                  Order history
+                </p>
+
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Purchase and payment
+                  status remain available
+                  in your account.
+                </p>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     </main>
