@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service.js';
 import type { OrderStatus } from '../generated/prisma/enums.js';
+import { EmailService } from '../notification/email.service.js';
 
 const PREVIOUS_STATUS_BY_TARGET: Partial<
   Record<OrderStatus, OrderStatus>
@@ -25,7 +26,10 @@ const FULFILLMENT_STATUSES: OrderStatus[] = [
 @Injectable()
 export class OrderProcessingService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly prisma:
+      PrismaService,
+    private readonly emailService:
+      EmailService,
   ) {}
 
   async updateStatus(
@@ -44,7 +48,9 @@ export class OrderProcessingService {
     }
 
     const currentOrder =
-      await this.findOrder(orderId);
+      await this.findOrder(
+        orderId,
+      );
 
     if (!currentOrder) {
       throw new NotFoundException(
@@ -57,7 +63,8 @@ export class OrderProcessingService {
       targetStatus
     ) {
       return {
-        order: currentOrder,
+        order:
+          currentOrder,
       };
     }
 
@@ -78,13 +85,18 @@ export class OrderProcessingService {
             expectedCurrentStatus,
         },
         data: {
-          status: targetStatus,
+          status:
+            targetStatus,
         },
       });
 
-    if (result.count === 0) {
+    if (
+      result.count === 0
+    ) {
       const latestOrder =
-        await this.findOrder(orderId);
+        await this.findOrder(
+          orderId,
+        );
 
       if (!latestOrder) {
         throw new NotFoundException(
@@ -97,7 +109,8 @@ export class OrderProcessingService {
         targetStatus
       ) {
         return {
-          order: latestOrder,
+          order:
+            latestOrder,
         };
       }
 
@@ -107,7 +120,9 @@ export class OrderProcessingService {
     }
 
     const updatedOrder =
-      await this.findOrder(orderId);
+      await this.findOrder(
+        orderId,
+      );
 
     if (!updatedOrder) {
       throw new NotFoundException(
@@ -115,8 +130,14 @@ export class OrderProcessingService {
       );
     }
 
+    await this.sendStatusEmail(
+      orderId,
+      targetStatus,
+    );
+
     return {
-      order: updatedOrder,
+      order:
+        updatedOrder,
     };
   }
 
@@ -135,7 +156,9 @@ export class OrderProcessingService {
     }
 
     const currentOrder =
-      await this.findOrder(orderId);
+      await this.findOrder(
+        orderId,
+      );
 
     if (!currentOrder) {
       throw new NotFoundException(
@@ -158,21 +181,26 @@ export class OrderProcessingService {
       targetStatus
     ) {
       return {
-        order: currentOrder,
+        order:
+          currentOrder,
       };
     }
 
     await this.prisma.order.update({
       where: {
-        id: orderId,
+        id:
+          orderId,
       },
       data: {
-        status: targetStatus,
+        status:
+          targetStatus,
       },
     });
 
     const updatedOrder =
-      await this.findOrder(orderId);
+      await this.findOrder(
+        orderId,
+      );
 
     if (!updatedOrder) {
       throw new NotFoundException(
@@ -180,9 +208,44 @@ export class OrderProcessingService {
       );
     }
 
+    const isNormalForwardTransition =
+      PREVIOUS_STATUS_BY_TARGET[
+        targetStatus
+      ] ===
+      currentOrder.status;
+
+    if (
+      isNormalForwardTransition
+    ) {
+      await this.sendStatusEmail(
+        orderId,
+        targetStatus,
+      );
+    }
+
     return {
-      order: updatedOrder,
+      order:
+        updatedOrder,
     };
+  }
+
+  private async sendStatusEmail(
+    orderId: string,
+    status: OrderStatus,
+  ): Promise<void> {
+    switch (status) {
+      case 'PROCESSING':
+      case 'SHIPPED':
+      case 'DELIVERED':
+        await this.emailService.sendFulfillmentUpdate(
+          orderId,
+          status,
+        );
+        return;
+
+      default:
+        return;
+    }
   }
 
   private findOrder(
@@ -190,18 +253,27 @@ export class OrderProcessingService {
   ) {
     return this.prisma.order.findUnique({
       where: {
-        id: orderId,
+        id:
+          orderId,
       },
       select: {
         id: true,
-        orderNumber: true,
-        status: true,
-        customerName: true,
-        customerEmail: true,
-        currency: true,
-        totalInCents: true,
-        createdAt: true,
-        updatedAt: true,
+        orderNumber:
+          true,
+        status:
+          true,
+        customerName:
+          true,
+        customerEmail:
+          true,
+        currency:
+          true,
+        totalInCents:
+          true,
+        createdAt:
+          true,
+        updatedAt:
+          true,
       },
     });
   }

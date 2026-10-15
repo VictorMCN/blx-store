@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { PrismaModule } from '../database/prisma.module.js';
+import { NotificationModule } from '../notification/notification.module.js';
 import { PaymentController } from './payment.controller.js';
 import { PaymentExpirationService } from './payment-expiration.service.js';
 import { PaymentService } from './payment.service.js';
@@ -11,6 +12,7 @@ import { StripeService } from './stripe.service.js';
   imports: [
     AuthModule,
     PrismaModule,
+    NotificationModule,
   ],
   controllers: [
     PaymentController,
@@ -21,6 +23,8 @@ import { StripeService } from './stripe.service.js';
     PaymentExpirationService,
     StripeService,
   ],
-  exports: [StripeService],
+  exports: [
+    StripeService,
+  ],
 })
 export class PaymentModule {}

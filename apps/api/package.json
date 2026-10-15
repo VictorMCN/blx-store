@@ -33,6 +33,7 @@
     "cookie-parser": "^1.4.7",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
+    "resend": "^6.33.0",
     "rxjs": "^7.8.1",
     "stripe": "^23.0.0"
   },
