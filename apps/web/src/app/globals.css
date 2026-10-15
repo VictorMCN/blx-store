@@ -2,7 +2,7 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #0f172a;
+  --foreground: #111827;
 }
 
 * {
@@ -18,18 +18,42 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 button,
-a {
-  -webkit-tap-highlight-color: transparent;
-}
-
-button {
+input,
+select,
+textarea {
   font: inherit;
 }
 
+button:not(:disabled) {
+  cursor: pointer;
+}
+
 a {
-  color: inherit;
   text-decoration: none;
+}
+
+input,
+select,
+textarea {
+  outline: none;
+}
+
+/*
+ * Keep foreground contrast deterministic for primary actions.
+ * This also protects link-based buttons from inherited anchor colors.
+ */
+a.bg-slate-950,
+button.bg-slate-950,
+a.bg-blue-600,
+button.bg-blue-600 {
+  color: #ffffff !important;
+}
+
+::selection {
+  background: #dbeafe;
+  color: #0f172a;
 }
