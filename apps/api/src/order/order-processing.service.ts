@@ -15,6 +15,13 @@ const PREVIOUS_STATUS_BY_TARGET: Partial<
   DELIVERED: 'SHIPPED',
 };
 
+const FULFILLMENT_STATUSES: OrderStatus[] = [
+  'PAID',
+  'PROCESSING',
+  'SHIPPED',
+  'DELIVERED',
+];
+
 @Injectable()
 export class OrderProcessingService {
   constructor(
@@ -98,6 +105,71 @@ export class OrderProcessingService {
         `Order cannot transition from ${latestOrder.status} to ${targetStatus}.`,
       );
     }
+
+    const updatedOrder =
+      await this.findOrder(orderId);
+
+    if (!updatedOrder) {
+      throw new NotFoundException(
+        'Order not found.',
+      );
+    }
+
+    return {
+      order: updatedOrder,
+    };
+  }
+
+  async setFulfillmentStatus(
+    orderId: string,
+    targetStatus: OrderStatus,
+  ) {
+    if (
+      !FULFILLMENT_STATUSES.includes(
+        targetStatus,
+      )
+    ) {
+      throw new BadRequestException(
+        'Only fulfillment statuses can be changed manually.',
+      );
+    }
+
+    const currentOrder =
+      await this.findOrder(orderId);
+
+    if (!currentOrder) {
+      throw new NotFoundException(
+        'Order not found.',
+      );
+    }
+
+    if (
+      !FULFILLMENT_STATUSES.includes(
+        currentOrder.status,
+      )
+    ) {
+      throw new ConflictException(
+        `Order status ${currentOrder.status} cannot be manually changed as fulfillment status.`,
+      );
+    }
+
+    if (
+      currentOrder.status ===
+      targetStatus
+    ) {
+      return {
+        order: currentOrder,
+      };
+    }
+
+    await this.prisma.order.update({
+      where: {
+        id: orderId,
+      },
+      data: {
+        status: targetStatus,
+      },
+    });
 
     const updatedOrder =
       await this.findOrder(orderId);

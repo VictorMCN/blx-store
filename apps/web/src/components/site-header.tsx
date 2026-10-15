@@ -21,7 +21,12 @@ function SearchIcon() {
       stroke="currentColor"
       strokeWidth="1.8"
     >
-      <circle cx="11" cy="11" r="7" />
+      <circle
+        cx="11"
+        cy="11"
+        r="7"
+      />
+
       <path d="m20 20-3.5-3.5" />
     </svg>
   );
@@ -37,7 +42,12 @@ function UserIcon() {
       stroke="currentColor"
       strokeWidth="1.8"
     >
-      <circle cx="12" cy="8" r="3.5" />
+      <circle
+        cx="12"
+        cy="8"
+        r="3.5"
+      />
+
       <path d="M5 20c.8-4 3-6 7-6s6.2 2 7 6" />
     </svg>
   );
@@ -54,14 +64,25 @@ function CartIcon() {
       strokeWidth="1.8"
     >
       <path d="M3 4h2l2.1 10.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L20 8H7" />
-      <circle cx="10" cy="20" r="1" />
-      <circle cx="17" cy="20" r="1" />
+
+      <circle
+        cx="10"
+        cy="20"
+        r="1"
+      />
+
+      <circle
+        cx="17"
+        cy="20"
+        r="1"
+      />
     </svg>
   );
 }
 
 export function SiteHeader() {
-  const router = useRouter();
+  const router =
+    useRouter();
 
   const {
     user,
@@ -70,21 +91,30 @@ export function SiteHeader() {
     logout,
   } = useStore();
 
-  const [loggingOut, setLoggingOut] =
+  const [
+    loggingOut,
+    setLoggingOut,
+  ] =
     useState(false);
 
-  const [categories, setCategories] =
+  const [
+    categories,
+    setCategories,
+  ] =
     useState<Category[]>([]);
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelled =
+      false;
 
     async function loadCategories() {
       try {
         const response =
           await apiFetch<{
             categories: Category[];
-          }>("/api/catalog/categories");
+          }>(
+            "/api/catalog/categories",
+          );
 
         if (cancelled) {
           return;
@@ -264,6 +294,17 @@ export function SiteHeader() {
               className="whitespace-nowrap rounded-md px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-950"
             >
               My orders
+            </Link>
+          )}
+
+          {user?.role ===
+            "ADMIN" && (
+            <Link
+              href="/admin"
+              prefetch={false}
+              className="whitespace-nowrap rounded-md bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+            >
+              Admin
             </Link>
           )}
 
