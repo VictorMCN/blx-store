@@ -117,6 +117,7 @@ describe('Admin order processing (e2e)', () => {
     )
       .post('/api/auth/register')
       .send({
+        fullName: 'Test Customer',
         email,
         password,
       })

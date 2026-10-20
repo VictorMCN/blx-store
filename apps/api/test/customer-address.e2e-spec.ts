@@ -88,6 +88,7 @@ describe('Customer addresses (e2e)', () => {
     await request(app.getHttpServer())
       .post('/api/auth/register')
       .send({
+        fullName: 'Test Customer',
         email: ownerEmail,
         password,
       })
@@ -96,6 +97,7 @@ describe('Customer addresses (e2e)', () => {
     await request(app.getHttpServer())
       .post('/api/auth/register')
       .send({
+        fullName: 'Test Customer',
         email: secondUserEmail,
         password,
       })

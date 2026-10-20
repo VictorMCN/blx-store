@@ -65,6 +65,7 @@ describe('Authentication (e2e)', () => {
     const response = await request(app.getHttpServer())
       .post('/api/auth/register')
       .send({
+        fullName: 'Test Customer',
         email: rawEmail,
         password,
       })
@@ -115,6 +116,7 @@ describe('Authentication (e2e)', () => {
     const response = await request(app.getHttpServer())
       .post('/api/auth/register')
       .send({
+        fullName: 'Test Customer',
         email: normalizedEmail,
         password,
       })
@@ -130,6 +132,7 @@ describe('Authentication (e2e)', () => {
     await request(app.getHttpServer())
       .post('/api/auth/register')
       .send({
+        fullName: 'Test Customer',
         email: attackerEmail,
         password,
         role: 'ADMIN',
@@ -150,6 +153,7 @@ describe('Authentication (e2e)', () => {
     await request(app.getHttpServer())
       .post('/api/auth/register')
       .send({
+        fullName: 'Test Customer',
         email: 'not-an-email',
         password,
       })
@@ -160,6 +164,7 @@ describe('Authentication (e2e)', () => {
     await request(app.getHttpServer())
       .post('/api/auth/register')
       .send({
+        fullName: 'Test Customer',
         email:
           `short-password.${uniqueId}@blx.local`,
         password: 'short123',
@@ -357,6 +362,7 @@ describe('Authentication (e2e)', () => {
     await request(app.getHttpServer())
       .post('/api/auth/register')
       .send({
+        fullName: 'Test Customer',
         email: inactiveEmail,
         password,
       })

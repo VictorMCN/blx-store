@@ -199,6 +199,7 @@ describe('Payment initialization (e2e)', () => {
     await request(app.getHttpServer())
       .post('/api/auth/register')
       .send({
+        fullName: 'Test Customer',
         email,
         password,
       })

@@ -303,6 +303,7 @@ describe('Cart (e2e)', () => {
     await request(app.getHttpServer())
       .post('/api/auth/register')
       .send({
+        fullName: 'Test Customer',
         email: customerEmail,
         password,
       })
@@ -324,6 +325,7 @@ describe('Cart (e2e)', () => {
     await request(app.getHttpServer())
       .post('/api/auth/register')
       .send({
+        fullName: 'Test Customer',
         email: secondCustomerEmail,
         password,
       })

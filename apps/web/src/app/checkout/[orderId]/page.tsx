@@ -56,6 +56,42 @@ function CheckoutPaymentForm({
   const [error, setError] =
     useState<string | null>(null);
 
+  useEffect(() => {
+    function resetPaymentSubmission() {
+      setSubmitting(false);
+    }
+
+    window.addEventListener(
+      "pageshow",
+      resetPaymentSubmission,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "pageshow",
+        resetPaymentSubmission,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    const resetSubmitting = () => {
+      setSubmitting(false);
+    };
+
+    window.addEventListener(
+      "pageshow",
+      resetSubmitting,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "pageshow",
+        resetSubmitting,
+      );
+    };
+  }, []);
+
   async function submitPayment(
     event: React.FormEvent<HTMLFormElement>,
   ) {
@@ -82,17 +118,20 @@ function CheckoutPaymentForm({
             "Please review your payment information.",
         );
 
-        setSubmitting(false);
         return;
       }
 
       const result =
         await stripe.confirmPayment({
           elements,
+
           confirmParams: {
             return_url:
               `${window.location.origin}/account/orders/${orderId}?payment=return`,
           },
+
+          redirect:
+            "if_required",
         });
 
       if (result.error) {
@@ -101,18 +140,10 @@ function CheckoutPaymentForm({
             "Payment could not be completed.",
         );
 
-        setSubmitting(false);
         return;
       }
 
-      /*
-       * Successful Stripe confirmations normally
-       * redirect to return_url.
-       *
-       * This is only a fallback for payment methods
-       * that complete without a browser redirect.
-       */
-      router.push(
+      router.replace(
         `/account/orders/${orderId}?payment=return`,
       );
     } catch (caught) {
@@ -126,7 +157,7 @@ function CheckoutPaymentForm({
           ? caught.message
           : "Unexpected error while processing payment.",
       );
-
+    } finally {
       setSubmitting(false);
     }
   }
@@ -396,6 +427,7 @@ function PaymentPageContent() {
               }}
             >
               <CheckoutPaymentForm
+                key={`${order.id}-${paymentResponse.payment.id}`}
                 orderId={order.id}
               />
             </Elements>

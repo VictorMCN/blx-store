@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   useEffect,
   useState,
@@ -26,7 +25,6 @@ function SearchIcon() {
         cy="11"
         r="7"
       />
-
       <path d="m20 20-3.5-3.5" />
     </svg>
   );
@@ -47,7 +45,6 @@ function UserIcon() {
         cy="8"
         r="3.5"
       />
-
       <path d="M5 20c.8-4 3-6 7-6s6.2 2 7 6" />
     </svg>
   );
@@ -64,13 +61,11 @@ function CartIcon() {
       strokeWidth="1.8"
     >
       <path d="M3 4h2l2.1 10.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.6L20 8H7" />
-
       <circle
         cx="10"
         cy="20"
         r="1"
       />
-
       <circle
         cx="17"
         cy="20"
@@ -81,31 +76,19 @@ function CartIcon() {
 }
 
 export function SiteHeader() {
-  const router =
-    useRouter();
-
   const {
     user,
     authLoading,
     cartCount,
-    logout,
   } = useStore();
-
-  const [
-    loggingOut,
-    setLoggingOut,
-  ] =
-    useState(false);
 
   const [
     categories,
     setCategories,
-  ] =
-    useState<Category[]>([]);
+  ] = useState<Category[]>([]);
 
   useEffect(() => {
-    let cancelled =
-      false;
+    let cancelled = false;
 
     async function loadCategories() {
       try {
@@ -149,18 +132,6 @@ export function SiteHeader() {
     };
   }, []);
 
-  async function handleLogout() {
-    setLoggingOut(true);
-
-    try {
-      await logout();
-
-      router.push("/");
-    } finally {
-      setLoggingOut(false);
-    }
-  }
-
   return (
     <header className="sticky top-0 z-50 bg-white">
       <div className="border-b border-slate-200">
@@ -203,13 +174,23 @@ export function SiteHeader() {
                 <Link
                   href="/account"
                   prefetch={false}
-                  className="flex h-10 items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 sm:px-3"
+                  aria-label={
+                    user.fullName
+                      ? `Account for ${user.fullName}`
+                      : "Account"
+                  }
+                  title={
+                    user.fullName ??
+                    user.email
+                  }
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-sm font-bold uppercase text-white shadow-sm transition hover:bg-blue-700 hover:ring-4 hover:ring-blue-100"
                 >
-                  <UserIcon />
-
-                  <span className="hidden lg:block">
-                    Account
-                  </span>
+                  {(
+                    user.fullName
+                      ?.trim()
+                      .charAt(0) ||
+                    user.email.charAt(0)
+                  ).toUpperCase()}
                 </Link>
               ) : (
                 <Link
@@ -245,21 +226,6 @@ export function SiteHeader() {
                 </span>
               )}
             </Link>
-
-            {user && (
-              <button
-                type="button"
-                onClick={() =>
-                  void handleLogout()
-                }
-                disabled={loggingOut}
-                className="hidden h-10 rounded-lg px-3 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-950 disabled:opacity-50 xl:block"
-              >
-                {loggingOut
-                  ? "Signing out..."
-                  : "Sign out"}
-              </button>
-            )}
           </div>
         </div>
       </div>
