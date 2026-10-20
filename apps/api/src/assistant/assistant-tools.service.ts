@@ -1,6 +1,5 @@
-import {
-  Injectable,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../database/prisma.service.js';
 
 const PRODUCT_SELECT = {
@@ -10,21 +9,18 @@ const PRODUCT_SELECT = {
   description: true,
   priceInCents: true,
   currency: true,
-
   category: {
     select: {
       name: true,
       slug: true,
     },
   },
-
   inventory: {
     select: {
       quantity: true,
       reservedQuantity: true,
     },
   },
-
   images: {
     select: {
       url: true,
@@ -37,56 +33,30 @@ const PRODUCT_SELECT = {
   },
 } as const;
 
-const SEARCH_CONCEPTS = [
+type SearchConcept = {
+  label: string;
+  categorySlug: string;
+  aliases: readonly string[];
+  productTerms?: readonly string[];
+};
+
+const SEARCH_CONCEPTS: readonly SearchConcept[] = [
   {
-    triggers: [
+    label: 'laptops',
+    categorySlug: 'laptops',
+    aliases: [
       'laptop',
       'laptops',
       'notebook',
       'notebooks',
-      'computador portátil',
       'computador portatil',
-      'computadores portáteis',
       'computadores portateis',
-      'portátil',
-      'portatil',
-      'portátiles',
-      'portatiles',
-    ],
-    terms: [
-      'laptop',
-      'laptops',
-      'notebook',
-      'portable',
     ],
   },
-
   {
-    triggers: [
-      'fone',
-      'fones',
-      'fone de ouvido',
-      'fones de ouvido',
-      'headphone',
-      'headphones',
-      'headset',
-      'headsets',
-      'auricular',
-      'auriculares',
-      'earphone',
-      'earphones',
-    ],
-    terms: [
-      'headphone',
-      'headphones',
-      'headset',
-      'audio',
-      'anc',
-    ],
-  },
-
-  {
-    triggers: [
+    label: 'smartphones',
+    categorySlug: 'smartphones',
+    aliases: [
       'celular',
       'celulares',
       'smartphone',
@@ -95,21 +65,61 @@ const SEARCH_CONCEPTS = [
       'telefones',
       'phone',
       'phones',
-      'móvil',
+      'mobile phone',
+      'mobile phones',
       'movil',
-      'móviles',
       'moviles',
     ],
-    terms: [
-      'smartphone',
-      'smartphones',
-      'phone',
-      'mobile',
+  },
+  {
+    label: 'headphones',
+    categorySlug: 'audio',
+    aliases: [
+      'fone',
+      'fones',
+      'fone de ouvido',
+      'fones de ouvido',
+      'headphone',
+      'headphones',
+      'headset',
+      'headsets',
+      'earphone',
+      'earphones',
+      'earbud',
+      'earbuds',
+      'auricular',
+      'auriculares',
+    ],
+    productTerms: [
+      'headphone',
+      'headset',
+      'earphone',
+      'earbud',
     ],
   },
-
   {
-    triggers: [
+    label: 'speakers',
+    categorySlug: 'audio',
+    aliases: [
+      'caixa de som',
+      'caixas de som',
+      'alto falante',
+      'alto falantes',
+      'speaker',
+      'speakers',
+      'parlante',
+      'parlantes',
+    ],
+    productTerms: [
+      'speaker',
+      'soundbar',
+      'alto-falante',
+    ],
+  },
+  {
+    label: 'monitors',
+    categorySlug: 'monitors',
+    aliases: [
       'monitor',
       'monitores',
       'monitors',
@@ -120,42 +130,37 @@ const SEARCH_CONCEPTS = [
       'display',
       'displays',
     ],
-    terms: [
-      'monitor',
-      'monitors',
-      'display',
-      'screen',
-    ],
   },
-
   {
-    triggers: [
+    label: 'keyboards',
+    categorySlug: 'accessories',
+    aliases: [
       'teclado',
       'teclados',
       'keyboard',
       'keyboards',
     ],
-    terms: [
+    productTerms: [
       'keyboard',
-      'keyboards',
-      'mechanical',
+      'teclado',
     ],
   },
-
   {
-    triggers: [
+    label: 'mice',
+    categorySlug: 'accessories',
+    aliases: [
       'mouse',
       'mouses',
       'mice',
+      'raton',
+      'ratones',
     ],
-    terms: [
-      'mouse',
-      'mice',
-    ],
+    productTerms: ['mouse'],
   },
-
   {
-    triggers: [
+    label: 'hubs',
+    categorySlug: 'accessories',
+    aliases: [
       'hub',
       'hubs',
       'adaptador',
@@ -165,330 +170,160 @@ const SEARCH_CONCEPTS = [
       'dock',
       'docking station',
     ],
-    terms: [
+    productTerms: [
       'hub',
-      'usb-c',
       'adapter',
       'dock',
     ],
   },
-
-  {
-    triggers: [
-      'caixa de som',
-      'caixas de som',
-      'alto falante',
-      'alto-falante',
-      'speaker',
-      'speakers',
-      'parlante',
-      'parlantes',
-    ],
-    terms: [
-      'speaker',
-      'speakers',
-      'audio',
-    ],
-  },
-] as const;
+];
 
 @Injectable()
 export class AssistantToolsService {
   constructor(
-    private readonly prisma:
-      PrismaService,
+    private readonly prisma: PrismaService,
   ) {}
 
-  async searchProducts(
-    query: string,
-    maxResults: number,
-  ) {
-    const normalizedQuery =
-      query.trim();
+  async searchProducts(query: string, maxResults: number) {
+    const text = query.trim();
+    const limit = Math.min(Math.max(maxResults, 1), 5);
 
-    const limit = Math.min(
-      Math.max(
-        maxResults,
-        1,
-      ),
-      5,
-    );
+    if (!text) {
+      return {
+        query: text,
+        interpretedSearchTerms: [],
+        count: 0,
+        products: [],
+      };
+    }
 
-    const searchTerms =
-      this.expandSearchTerms(
-        normalizedQuery,
-      );
+    const concepts = this.matchConcepts(text);
 
-    const products =
-      await this.prisma.product.findMany({
-        where: {
-          isActive: true,
+    const filters = concepts.length
+      ? concepts.map((concept) => this.conceptFilter(concept))
+      : this.textFilters(text);
 
-          OR:
-            searchTerms.flatMap(
-              (term) => [
-                {
-                  name: {
-                    contains:
-                      term,
-                    mode:
-                      'insensitive' as const,
-                  },
-                },
-                {
-                  description: {
-                    contains:
-                      term,
-                    mode:
-                      'insensitive' as const,
-                  },
-                },
-                {
-                  sku: {
-                    contains:
-                      term,
-                    mode:
-                      'insensitive' as const,
-                  },
-                },
-                {
-                  category: {
-                    name: {
-                      contains:
-                        term,
-                      mode:
-                        'insensitive' as const,
-                    },
-                  },
-                },
-                {
-                  category: {
-                    description: {
-                      contains:
-                        term,
-                      mode:
-                        'insensitive' as const,
-                    },
-                  },
-                },
-              ],
-            ),
-        },
-
-        select:
-          PRODUCT_SELECT,
-
-        orderBy: {
-          name: 'asc',
-        },
-
-        take: limit,
-      });
+    const products = await this.prisma.product.findMany({
+      where: {
+        isActive: true,
+        category: { isActive: true },
+        OR: filters,
+      },
+      select: PRODUCT_SELECT,
+      orderBy: { name: 'asc' },
+      take: limit,
+    });
 
     return {
-      query:
-        normalizedQuery,
-
-      interpretedSearchTerms:
-        searchTerms,
-
-      count:
-        products.length,
-
-      products:
-        products.map(
-          (product) =>
-            this.toProductResult(
-              product,
-            ),
-        ),
+      query: text,
+      interpretedSearchTerms: concepts.length
+        ? concepts.map((concept) => concept.label)
+        : [text],
+      count: products.length,
+      products: products.map((product) =>
+        this.toProductResult(product),
+      ),
     };
   }
 
-  async getProductDetails(
-    slug: string,
-  ) {
-    const product =
-      await this.prisma.product.findFirst({
-        where: {
-          slug:
-            slug
-              .trim()
-              .toLowerCase(),
-          isActive: true,
-        },
-
-        select:
-          PRODUCT_SELECT,
-      });
+  async getProductDetails(slug: string) {
+    const product = await this.prisma.product.findFirst({
+      where: {
+        slug: slug.trim().toLowerCase(),
+        isActive: true,
+      },
+      select: PRODUCT_SELECT,
+    });
 
     if (!product) {
       return {
         found: false,
-        message:
-          'Product not found.',
+        message: 'Product not found.',
       };
     }
 
     return {
       found: true,
-      product:
-        this.toProductResult(
-          product,
-        ),
+      product: this.toProductResult(product),
     };
   }
 
-  async compareProducts(
-    slugs: string[],
-  ) {
-    const normalizedSlugs =
-      [
-        ...new Set(
-          slugs
-            .map((slug) =>
-              slug
-                .trim()
-                .toLowerCase(),
-            )
-            .filter(Boolean),
-        ),
-      ].slice(
-        0,
-        4,
-      );
+  async compareProducts(slugs: string[]) {
+    const normalizedSlugs = [
+      ...new Set(
+        slugs
+          .map((slug) => slug.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    ].slice(0, 4);
 
-    const products =
-      await this.prisma.product.findMany({
-        where: {
-          isActive: true,
-          slug: {
-            in:
-              normalizedSlugs,
-          },
-        },
+    const products = await this.prisma.product.findMany({
+      where: {
+        isActive: true,
+        slug: { in: normalizedSlugs },
+      },
+      select: PRODUCT_SELECT,
+    });
 
-        select:
-          PRODUCT_SELECT,
-      });
-
-    const productBySlug =
-      new Map(
-        products.map(
-          (product) => [
-            product.slug,
-            product,
-          ],
-        ),
-      );
+    const bySlug = new Map(
+      products.map((product) => [
+        product.slug,
+        product,
+      ]),
+    );
 
     return {
-      requested:
-        normalizedSlugs,
-
-      products:
-        normalizedSlugs
-          .map((slug) =>
-            productBySlug.get(
-              slug,
-            ),
-          )
-          .filter(
-            (
-              product,
-            ): product is NonNullable<
-              typeof product
-            > =>
-              product !==
-              undefined,
-          )
-          .map((product) =>
-            this.toProductResult(
-              product,
-            ),
-          ),
-
-      missing:
-        normalizedSlugs.filter(
-          (slug) =>
-            !productBySlug.has(
-              slug,
-            ),
-        ),
+      requested: normalizedSlugs,
+      products: normalizedSlugs
+        .map((slug) => bySlug.get(slug))
+        .filter(
+          (product): product is NonNullable<typeof product> =>
+            product !== undefined,
+        )
+        .map((product) => this.toProductResult(product)),
+      missing: normalizedSlugs.filter(
+        (slug) => !bySlug.has(slug),
+      ),
     };
   }
 
-  async getMyOrders(
-    userId: string,
-    limit: number,
-  ) {
-    const safeLimit =
-      Math.min(
-        Math.max(
-          limit,
-          1,
-        ),
-        5,
-      );
+  async getMyOrders(userId: string, limit: number) {
+    const safeLimit = Math.min(Math.max(limit, 1), 5);
 
-    const orders =
-      await this.prisma.order.findMany({
-        where: {
-          userId,
-        },
-
-        select: {
-          orderNumber: true,
-          status: true,
-          currency: true,
-          totalInCents: true,
-          createdAt: true,
-          updatedAt: true,
-
-          items: {
-            select: {
-              productName: true,
-              quantity: true,
-            },
-            orderBy: {
-              createdAt:
-                'asc',
-            },
+    const orders = await this.prisma.order.findMany({
+      where: { userId },
+      select: {
+        orderNumber: true,
+        status: true,
+        currency: true,
+        totalInCents: true,
+        createdAt: true,
+        updatedAt: true,
+        items: {
+          select: {
+            productName: true,
+            quantity: true,
           },
+          orderBy: { createdAt: 'asc' },
         },
-
-        orderBy: {
-          createdAt: 'desc',
-        },
-
-        take:
-          safeLimit,
-      });
+      },
+      orderBy: { createdAt: 'desc' },
+      take: safeLimit,
+    });
 
     return {
-      count:
-        orders.length,
-
-      orders:
-        orders.map(
-          (order) => ({
-            orderNumber:
-              order.orderNumber,
-            status:
-              order.status,
-            total:
-              this.formatMoney(
-                order.totalInCents,
-                order.currency,
-              ),
-            createdAt:
-              order.createdAt,
-            updatedAt:
-              order.updatedAt,
-            items:
-              order.items,
-          }),
+      count: orders.length,
+      orders: orders.map((order) => ({
+        orderNumber: order.orderNumber,
+        status: order.status,
+        total: this.formatMoney(
+          order.totalInCents,
+          order.currency,
         ),
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+        items: order.items,
+      })),
     };
   }
 
@@ -496,47 +331,32 @@ export class AssistantToolsService {
     userId: string,
     orderNumber: string,
   ) {
-    const normalizedOrderNumber =
-      orderNumber
-        .trim()
-        .toUpperCase();
-
-    const order =
-      await this.prisma.order.findFirst({
-        where: {
-          userId,
-          orderNumber:
-            normalizedOrderNumber,
-        },
-
-        select: {
-          orderNumber: true,
-          status: true,
-          currency: true,
-          subtotalInCents: true,
-          shippingInCents: true,
-          totalInCents: true,
-          reservationExpiresAt:
-            true,
-          createdAt: true,
-          updatedAt: true,
-
-          items: {
-            select: {
-              productName: true,
-              quantity: true,
-              unitPriceInCents:
-                true,
-              lineTotalInCents:
-                true,
-            },
-            orderBy: {
-              createdAt:
-                'asc',
-            },
+    const order = await this.prisma.order.findFirst({
+      where: {
+        userId,
+        orderNumber: orderNumber.trim().toUpperCase(),
+      },
+      select: {
+        orderNumber: true,
+        status: true,
+        currency: true,
+        subtotalInCents: true,
+        shippingInCents: true,
+        totalInCents: true,
+        reservationExpiresAt: true,
+        createdAt: true,
+        updatedAt: true,
+        items: {
+          select: {
+            productName: true,
+            quantity: true,
+            unitPriceInCents: true,
+            lineTotalInCents: true,
           },
+          orderBy: { createdAt: 'asc' },
         },
-      });
+      },
+    });
 
     if (!order) {
       return {
@@ -548,196 +368,175 @@ export class AssistantToolsService {
 
     return {
       found: true,
-
       order: {
-        orderNumber:
-          order.orderNumber,
-        status:
-          order.status,
-
-        subtotal:
-          this.formatMoney(
-            order.subtotalInCents,
+        orderNumber: order.orderNumber,
+        status: order.status,
+        subtotal: this.formatMoney(
+          order.subtotalInCents,
+          order.currency,
+        ),
+        shipping: this.formatMoney(
+          order.shippingInCents,
+          order.currency,
+        ),
+        total: this.formatMoney(
+          order.totalInCents,
+          order.currency,
+        ),
+        reservationExpiresAt: order.reservationExpiresAt,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+        items: order.items.map((item) => ({
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: this.formatMoney(
+            item.unitPriceInCents,
             order.currency,
           ),
-
-        shipping:
-          this.formatMoney(
-            order.shippingInCents,
+          lineTotal: this.formatMoney(
+            item.lineTotalInCents,
             order.currency,
           ),
-
-        total:
-          this.formatMoney(
-            order.totalInCents,
-            order.currency,
-          ),
-
-        reservationExpiresAt:
-          order.reservationExpiresAt,
-        createdAt:
-          order.createdAt,
-        updatedAt:
-          order.updatedAt,
-
-        items:
-          order.items.map(
-            (item) => ({
-              productName:
-                item.productName,
-              quantity:
-                item.quantity,
-
-              unitPrice:
-                this.formatMoney(
-                  item.unitPriceInCents,
-                  order.currency,
-                ),
-
-              lineTotal:
-                this.formatMoney(
-                  item.lineTotalInCents,
-                  order.currency,
-                ),
-            }),
-          ),
+        })),
       },
     };
   }
 
-  private expandSearchTerms(
+  private matchConcepts(query: string): SearchConcept[] {
+    const normalized = ` ${this.normalizeSearchText(query)} `;
+
+    return SEARCH_CONCEPTS.filter((concept) =>
+      concept.aliases.some((alias) =>
+        normalized.includes(
+          ` ${this.normalizeSearchText(alias)} `,
+        ),
+      ),
+    );
+  }
+
+  private conceptFilter(
+    concept: SearchConcept,
+  ): Prisma.ProductWhereInput {
+    const category: Prisma.ProductWhereInput = {
+      category: { slug: concept.categorySlug },
+    };
+
+    if (!concept.productTerms?.length) {
+      return category;
+    }
+
+    return {
+      AND: [
+        category,
+        {
+          OR: this.productTextFilters(
+            concept.productTerms,
+          ),
+        },
+      ],
+    };
+  }
+
+  private textFilters(
     query: string,
-  ): string[] {
-    const normalized =
-      this.normalizeSearchText(
-        query,
-      );
-
-    const terms =
-      new Set<string>();
-
-    if (query.trim()) {
-      terms.add(
-        query.trim(),
-      );
-    }
-
-    for (
-      const concept
-      of SEARCH_CONCEPTS
-    ) {
-      const matches =
-        concept.triggers.some(
-          (trigger) =>
-            normalized.includes(
-              this.normalizeSearchText(
-                trigger,
-              ),
-            ),
-        );
-
-      if (!matches) {
-        continue;
-      }
-
-      for (
-        const term
-        of concept.terms
-      ) {
-        terms.add(term);
-      }
-    }
-
+  ): Prisma.ProductWhereInput[] {
     return [
-      ...terms,
+      ...this.productTextFilters([query]),
+      {
+        category: {
+          name: {
+            contains: query,
+            mode: 'insensitive',
+          },
+        },
+      },
+      {
+        category: {
+          description: {
+            contains: query,
+            mode: 'insensitive',
+          },
+        },
+      },
     ];
   }
 
-  private normalizeSearchText(
-    value: string,
-  ): string {
+  private productTextFilters(
+    terms: readonly string[],
+  ): Prisma.ProductWhereInput[] {
+    return terms.flatMap((term) => [
+      {
+        name: {
+          contains: term,
+          mode: 'insensitive',
+        },
+      },
+      {
+        description: {
+          contains: term,
+          mode: 'insensitive',
+        },
+      },
+      {
+        sku: {
+          contains: term,
+          mode: 'insensitive',
+        },
+      },
+    ]);
+  }
+
+  private normalizeSearchText(value: string): string {
     return value
       .normalize('NFD')
-      .replace(
-        /[\u0300-\u036f]/g,
-        '',
-      )
+      .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
       .trim();
   }
 
-  private toProductResult(
-    product: {
+  private toProductResult(product: {
+    name: string;
+    slug: string;
+    sku: string;
+    description: string;
+    priceInCents: number;
+    currency: string;
+    category: {
       name: string;
       slug: string;
-      sku: string;
-      description: string;
-      priceInCents: number;
-      currency: string;
-
-      category: {
-        name: string;
-        slug: string;
-      };
-
-      inventory: {
-        quantity: number;
-        reservedQuantity: number;
-      } | null;
-
-      images: {
-        url: string;
-        altText: string | null;
-      }[];
-    },
-  ) {
-    const availableQuantity =
-      Math.max(
-        0,
-        (product.inventory
-          ?.quantity ??
-          0) -
-          (product.inventory
-            ?.reservedQuantity ??
-            0),
-      );
+    };
+    inventory: {
+      quantity: number;
+      reservedQuantity: number;
+    } | null;
+    images: {
+      url: string;
+      altText: string | null;
+    }[];
+  }) {
+    const availableQuantity = Math.max(
+      0,
+      (product.inventory?.quantity ?? 0) -
+        (product.inventory?.reservedQuantity ?? 0),
+    );
 
     return {
-      name:
-        product.name,
-      slug:
-        product.slug,
-      sku:
-        product.sku,
-      description:
-        product.description,
-
-      price:
-        this.formatMoney(
-          product.priceInCents,
-          product.currency,
-        ),
-
-      priceInCents:
+      name: product.name,
+      slug: product.slug,
+      sku: product.sku,
+      description: product.description,
+      price: this.formatMoney(
         product.priceInCents,
-      currency:
         product.currency,
-
-      category:
-        product.category.name,
-
+      ),
+      priceInCents: product.priceInCents,
+      currency: product.currency,
+      category: product.category.name,
       availableQuantity,
-      inStock:
-        availableQuantity >
-        0,
-
-      imageUrl:
-        product.images[0]
-          ?.url ??
-        null,
-
-      productUrl:
-        `/products/${product.slug}`,
+      inStock: availableQuantity > 0,
+      imageUrl: product.images[0]?.url ?? null,
+      productUrl: `/products/${product.slug}`,
     };
   }
 
@@ -745,16 +544,9 @@ export class AssistantToolsService {
     amountInCents: number,
     currency: string,
   ): string {
-    return new Intl.NumberFormat(
-      'en-US',
-      {
-        style:
-          'currency',
-        currency,
-      },
-    ).format(
-      amountInCents /
-        100,
-    );
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+    }).format(amountInCents / 100);
   }
 }

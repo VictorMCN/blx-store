@@ -12,6 +12,7 @@ import {
   ApiError,
   apiFetch,
 } from "@/lib/api";
+import type { AuthUser } from "@/lib/types";
 import { useStore } from "./store-provider";
 
 type ChatRole =
@@ -66,12 +67,15 @@ function CloseIcon() {
   );
 }
 
-export function AiAssistant() {
-  const {
-    user,
-    authLoading,
-  } = useStore();
+interface AiAssistantSessionProps {
+  user: AuthUser | null;
+  authLoading: boolean;
+}
 
+function AiAssistantSession({
+  user,
+  authLoading,
+}: AiAssistantSessionProps) {
   const [open, setOpen] =
     useState(false);
 
@@ -91,14 +95,6 @@ export function AiAssistant() {
     useRef<HTMLDivElement | null>(
       null,
     );
-
-  useEffect(() => {
-    if (!user) {
-      setMessages([]);
-      setInput("");
-      setError(null);
-    }
-  }, [user]);
 
   useEffect(() => {
     if (!open) {
@@ -130,7 +126,7 @@ export function AiAssistant() {
 
     const history =
       messages
-        .slice(-8)
+        .slice(-4)
         .map(
           ({
             role,
@@ -141,8 +137,11 @@ export function AiAssistant() {
           }),
         );
 
+    const messageSequence =
+      messages.length;
+
     const userMessage: ChatMessage = {
-      id: `${Date.now()}-user`,
+      id: `user-${messageSequence}`,
       role: "user",
       content: message,
     };
@@ -173,7 +172,7 @@ export function AiAssistant() {
 
       const assistantMessage:
         ChatMessage = {
-          id: `${Date.now()}-assistant`,
+          id: `assistant-${messageSequence + 1}`,
           role: "assistant",
           content:
             response.message,
@@ -372,20 +371,20 @@ export function AiAssistant() {
                 <div className="space-y-4">
                   {messages.map(
                     (
-                      message,
+                      chatMessage,
                     ) => (
                       <div
                         key={
-                          message.id
+                          chatMessage.id
                         }
                         className={
-                          message.role ===
+                          chatMessage.role ===
                           "user"
                             ? "flex justify-end"
                             : "flex items-start justify-start gap-2"
                         }
                       >
-                        {message.role ===
+                        {chatMessage.role ===
                           "assistant" && (
                           <div className="relative mt-1 h-8 w-8 shrink-0 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
                             <Image
@@ -400,14 +399,14 @@ export function AiAssistant() {
 
                         <div
                           className={
-                            message.role ===
+                            chatMessage.role ===
                             "user"
                               ? "max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-blue-600 px-4 py-3 text-sm leading-6 text-white"
                               : "max-w-[82%] whitespace-pre-wrap rounded-2xl rounded-bl-md border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-700 shadow-sm"
                           }
                         >
                           {
-                            message.content
+                            chatMessage.content
                           }
                         </div>
                       </div>
@@ -554,5 +553,23 @@ export function AiAssistant() {
         </span>
       </button>
     </>
+  );
+}
+
+export function AiAssistant() {
+  const {
+    user,
+    authLoading,
+  } = useStore();
+
+  return (
+    <AiAssistantSession
+      key={
+        user?.id ??
+        "anonymous"
+      }
+      user={user}
+      authLoading={authLoading}
+    />
   );
 }

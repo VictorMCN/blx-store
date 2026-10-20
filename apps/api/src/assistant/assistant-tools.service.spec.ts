@@ -1,233 +1,260 @@
-import {
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../database/prisma.service.js';
 import { AssistantToolsService } from './assistant-tools.service.js';
 
 describe('AssistantToolsService', () => {
-  const productFindManyMock =
-    vi.fn();
-
-  const productFindFirstMock =
-    vi.fn();
-
-  const orderFindManyMock =
-    vi.fn();
-
-  const orderFindFirstMock =
-    vi.fn();
+  const productFindManyMock = vi.fn();
+  const productFindFirstMock = vi.fn();
+  const orderFindManyMock = vi.fn();
+  const orderFindFirstMock = vi.fn();
 
   const prisma = {
     product: {
-      findMany: (
-        ...args: unknown[]
-      ) =>
-        productFindManyMock(
-          ...args,
-        ),
-
-      findFirst: (
-        ...args: unknown[]
-      ) =>
-        productFindFirstMock(
-          ...args,
-        ),
+      findMany: (...args: unknown[]) =>
+        productFindManyMock(...args),
+      findFirst: (...args: unknown[]) =>
+        productFindFirstMock(...args),
     },
-
     order: {
-      findMany: (
-        ...args: unknown[]
-      ) =>
-        orderFindManyMock(
-          ...args,
-        ),
-
-      findFirst: (
-        ...args: unknown[]
-      ) =>
-        orderFindFirstMock(
-          ...args,
-        ),
+      findMany: (...args: unknown[]) =>
+        orderFindManyMock(...args),
+      findFirst: (...args: unknown[]) =>
+        orderFindFirstMock(...args),
     },
   } as unknown as PrismaService;
 
-  let service:
-    AssistantToolsService;
+  let service: AssistantToolsService;
 
   beforeEach(() => {
-    productFindManyMock
-      .mockReset();
+    productFindManyMock.mockReset();
+    productFindFirstMock.mockReset();
+    orderFindManyMock.mockReset();
+    orderFindFirstMock.mockReset();
 
-    productFindFirstMock
-      .mockReset();
-
-    orderFindManyMock
-      .mockReset();
-
-    orderFindFirstMock
-      .mockReset();
-
-    service =
-      new AssistantToolsService(
-        prisma,
-      );
+    service = new AssistantToolsService(prisma);
   });
 
   it('searches only active products and limits results', async () => {
-    productFindManyMock
-      .mockResolvedValue([]);
+    productFindManyMock.mockResolvedValue([]);
 
-    await service.searchProducts(
-      'laptop',
-      100,
-    );
+    await service.searchProducts('laptop', 100);
 
-    expect(
-      productFindManyMock,
-    ).toHaveBeenCalledTimes(
-      1,
-    );
+    expect(productFindManyMock).toHaveBeenCalledTimes(1);
 
-    expect(
-      productFindManyMock,
-    ).toHaveBeenCalledWith(
+    expect(productFindManyMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        where:
-          expect.objectContaining({
-            isActive: true,
-          }),
+        where: expect.objectContaining({
+          isActive: true,
+        }),
         take: 5,
       }),
     );
   });
 
-  it('calculates available stock without exposing reserved stock as available', async () => {
-    productFindFirstMock
-      .mockResolvedValue({
-        name:
-          'BLX Test Laptop',
-        slug:
-          'blx-test-laptop',
-        sku:
-          'BLX-TEST',
-        description:
-          'Test laptop.',
-        priceInCents:
-          500000,
-        currency:
-          'BRL',
+  it.each([
+    ['quais fones vocês têm?', 'headphones', 'audio'],
+    ['fones', 'headphones', 'audio'],
+    ['fone-de-ouvido', 'headphones', 'audio'],
+    ['show me headphones', 'headphones', 'audio'],
+    ['celular', 'smartphones', 'smartphones'],
+    ['CÉLULARES', 'smartphones', 'smartphones'],
+    ['phone', 'smartphones', 'smartphones'],
+    ['notebook', 'laptops', 'laptops'],
+    ['monitor', 'monitors', 'monitors'],
+    ['teclado', 'keyboards', 'accessories'],
+    ['mouse', 'mice', 'accessories'],
+    ['adaptador', 'hubs', 'accessories'],
+    ['caixas de som', 'speakers', 'audio'],
+  ])(
+    'recognizes "%s" as %s',
+    async (query, label, category) => {
+      productFindManyMock.mockResolvedValue([]);
 
-        category: {
-          name:
-            'Laptops',
-          slug:
-            'laptops',
-        },
+      const result = await service.searchProducts(query, 5);
 
-        inventory: {
-          quantity: 10,
-          reservedQuantity: 3,
-        },
+      const request = productFindManyMock.mock.calls[0]?.[0] as {
+        where: {
+          isActive: boolean;
+          OR: unknown[];
+        };
+      };
 
-        images: [],
-      });
+      expect(result.interpretedSearchTerms).toEqual([label]);
+      expect(request.where.isActive).toBe(true);
+      expect(request.where.OR).toHaveLength(1);
 
-    const result =
-      await service.getProductDetails(
-        'BLX-TEST-LAPTOP',
-      );
+      expect(
+        JSON.stringify(request.where.OR),
+      ).toContain(`"slug":"${category}"`);
+    },
+  );
+
+  it('does not confuse headphones with smartphones', async () => {
+    productFindManyMock.mockResolvedValue([]);
+
+    await service.searchProducts('headphones', 5);
+
+    const filters = JSON.stringify(
+      productFindManyMock.mock.calls[0]?.[0],
+    );
+
+    expect(filters).toContain('"slug":"audio"');
+    expect(filters).not.toContain('"slug":"smartphones"');
+  });
+
+  it('distinguishes headphones and speakers within Audio', async () => {
+    productFindManyMock.mockResolvedValue([]);
+
+    await service.searchProducts('fones', 5);
+
+    const headphoneFilter = JSON.stringify(
+      productFindManyMock.mock.calls[0]?.[0],
+    );
+
+    productFindManyMock.mockClear();
+
+    await service.searchProducts('caixas de som', 5);
+
+    const speakerFilter = JSON.stringify(
+      productFindManyMock.mock.calls[0]?.[0],
+    );
+
+    expect(headphoneFilter).toContain('"contains":"headset"');
+    expect(headphoneFilter).not.toContain('"contains":"speaker"');
+
+    expect(speakerFilter).toContain('"contains":"speaker"');
+    expect(speakerFilter).not.toContain('"contains":"headset"');
+  });
+
+  it('can search multiple product concepts in one question', async () => {
+    productFindManyMock.mockResolvedValue([]);
+
+    const result = await service.searchProducts(
+      'celular e fone',
+      5,
+    );
+
+    const request = productFindManyMock.mock.calls[0]?.[0] as {
+      where: { OR: unknown[] };
+    };
+
+    expect(result.interpretedSearchTerms).toEqual([
+      'smartphones',
+      'headphones',
+    ]);
+
+    expect(request.where.OR).toHaveLength(2);
+  });
+
+  it('keeps name and SKU searches when no concept matches', async () => {
+    productFindManyMock.mockResolvedValue([]);
+
+    const result = await service.searchProducts(
+      'BLX-NB14-001',
+      5,
+    );
+
+    const request = JSON.stringify(
+      productFindManyMock.mock.calls[0]?.[0],
+    );
+
+    expect(result.interpretedSearchTerms).toEqual([
+      'BLX-NB14-001',
+    ]);
+
+    expect(request).toContain('"sku"');
+    expect(request).toContain('"contains":"BLX-NB14-001"');
+  });
+
+  it('returns no products for empty input', async () => {
+    expect(
+      await service.searchProducts('   ', 5),
+    ).toEqual({
+      query: '',
+      interpretedSearchTerms: [],
+      count: 0,
+      products: [],
+    });
+
+    expect(productFindManyMock).not.toHaveBeenCalled();
+  });
+
+  it('calculates stock without counting reserved units', async () => {
+    productFindFirstMock.mockResolvedValue({
+      name: 'BLX Test Laptop',
+      slug: 'blx-test-laptop',
+      sku: 'BLX-TEST',
+      description: 'Test laptop.',
+      priceInCents: 500000,
+      currency: 'BRL',
+      category: {
+        name: 'Laptops',
+        slug: 'laptops',
+      },
+      inventory: {
+        quantity: 10,
+        reservedQuantity: 3,
+      },
+      images: [],
+    });
+
+    const result = await service.getProductDetails(
+      'BLX-TEST-LAPTOP',
+    );
 
     expect(result).toMatchObject({
       found: true,
-
       product: {
-        slug:
-          'blx-test-laptop',
+        slug: 'blx-test-laptop',
         availableQuantity: 7,
         inStock: true,
       },
     });
   });
 
-  it('queries recent orders only for the authenticated customer', async () => {
-    orderFindManyMock
-      .mockResolvedValue([]);
+  it('reads recent orders only for the authenticated user', async () => {
+    orderFindManyMock.mockResolvedValue([]);
 
-    await service.getMyOrders(
-      'customer-a',
-      5,
-    );
+    await service.getMyOrders('customer-a', 5);
 
-    expect(
-      orderFindManyMock,
-    ).toHaveBeenCalledTimes(
-      1,
-    );
-
-    expect(
-      orderFindManyMock,
-    ).toHaveBeenCalledWith(
+    expect(orderFindManyMock).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          userId:
-            'customer-a',
+          userId: 'customer-a',
         },
         take: 5,
       }),
     );
   });
 
-  it('clamps the number of customer orders returned', async () => {
-    orderFindManyMock
-      .mockResolvedValue([]);
+  it('clamps the number of customer orders', async () => {
+    orderFindManyMock.mockResolvedValue([]);
 
-    await service.getMyOrders(
-      'customer-a',
-      999,
-    );
+    await service.getMyOrders('customer-a', 999);
 
-    expect(
-      orderFindManyMock,
-    ).toHaveBeenCalledWith(
+    expect(orderFindManyMock).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          userId:
-            'customer-a',
+          userId: 'customer-a',
         },
         take: 5,
       }),
     );
   });
 
-  it('checks both user ownership and order number when reading order status', async () => {
-    orderFindFirstMock
-      .mockResolvedValue(null);
+  it('checks both user ownership and order number', async () => {
+    orderFindFirstMock.mockResolvedValue(null);
 
-    const result =
-      await service.getMyOrderStatus(
-        'customer-a',
-        'blx-123-test',
-      );
-
-    expect(
-      orderFindFirstMock,
-    ).toHaveBeenCalledTimes(
-      1,
+    const result = await service.getMyOrderStatus(
+      'customer-a',
+      'blx-123-test',
     );
 
-    expect(
-      orderFindFirstMock,
-    ).toHaveBeenCalledWith(
+    expect(orderFindFirstMock).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          userId:
-            'customer-a',
-          orderNumber:
-            'BLX-123-TEST',
+          userId: 'customer-a',
+          orderNumber: 'BLX-123-TEST',
         },
       }),
     );
@@ -239,15 +266,13 @@ describe('AssistantToolsService', () => {
     });
   });
 
-  it('never returns another customer order when ownership lookup fails', async () => {
-    orderFindFirstMock
-      .mockResolvedValue(null);
+  it('never reads another customer order', async () => {
+    orderFindFirstMock.mockResolvedValue(null);
 
-    const result =
-      await service.getMyOrderStatus(
-        'customer-b',
-        'BLX-PRIVATE-ORDER',
-      );
+    const result = await service.getMyOrderStatus(
+      'customer-b',
+      'BLX-PRIVATE-ORDER',
+    );
 
     expect(result).toEqual({
       found: false,
@@ -255,15 +280,11 @@ describe('AssistantToolsService', () => {
         'Order not found for the authenticated customer.',
     });
 
-    expect(
-      orderFindFirstMock,
-    ).toHaveBeenCalledWith(
+    expect(orderFindFirstMock).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          userId:
-            'customer-b',
-          orderNumber:
-            'BLX-PRIVATE-ORDER',
+          userId: 'customer-b',
+          orderNumber: 'BLX-PRIVATE-ORDER',
         },
       }),
     );
