@@ -3,6 +3,8 @@ import {
   type INestApplication,
 } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
+import { httpLoggingMiddleware } from './observability/http-logging.middleware.js';
+import { SafeExceptionFilter } from './observability/safe-exception.filter.js';
 
 interface HttpApplication {
   disable?: (setting: string) => void;
@@ -18,7 +20,13 @@ export function configureApp(
 
   httpApplication.disable?.('x-powered-by');
 
+  app.use(httpLoggingMiddleware);
+
   app.use(cookieParser());
+
+  app.useGlobalFilters(
+    new SafeExceptionFilter(),
+  );
 
   app.useGlobalPipes(
     new ValidationPipe({

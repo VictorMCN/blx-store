@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module.js';
 import { PrismaModule } from '../database/prisma.module.js';
 import { AdminController } from './admin.controller.js';
 import { AdminService } from './admin.service.js';
+import { MonitoringController } from './monitoring.controller.js';
 
 @Module({
   imports: [
@@ -11,6 +12,7 @@ import { AdminService } from './admin.service.js';
   ],
   controllers: [
     AdminController,
+    MonitoringController,
   ],
   providers: [
     AdminService,

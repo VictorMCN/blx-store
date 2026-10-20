@@ -9,6 +9,7 @@ import {
 } from '@nestjs/schedule';
 import type Stripe from 'stripe';
 import { PrismaService } from '../database/prisma.service.js';
+import { recordPaymentMetric } from '../observability/payment-metrics.service.js';
 import { PaymentService } from './payment.service.js';
 import { StripeService } from './stripe.service.js';
 
@@ -48,10 +49,9 @@ export class PaymentExpirationService {
       for (const order of orders) {
         try {
           await this.expireOrder(order.id);
-        } catch (error) {
-          this.logger.warn(
-            `Could not expire order ${order.orderNumber}: ${this.getErrorMessage(error)}`,
-          );
+        } catch {
+          recordPaymentMetric('reservationExpirationFailed');
+          this.logger.warn('Payment reservation expiration failed.');
         }
       }
     } finally {
@@ -247,7 +247,7 @@ export class PaymentExpirationService {
       attempt += 1
     ) {
       try {
-        await this.prisma.$transaction(
+        const didExpire = await this.prisma.$transaction(
           async (transaction) => {
             const now = new Date();
 
@@ -276,7 +276,7 @@ export class PaymentExpirationService {
               order.reservationExpiresAt >
                 now
             ) {
-              return;
+              return false;
             }
 
             const claimedOrder =
@@ -294,7 +294,7 @@ export class PaymentExpirationService {
               });
 
             if (claimedOrder.count !== 1) {
-              return;
+              return false;
             }
 
             for (const item of order.items) {
@@ -349,11 +349,17 @@ export class PaymentExpirationService {
                   'Payment reservation expired before payment was completed.',
               },
             });
+
+            return true;
           },
           {
             isolationLevel: 'Serializable',
           },
         );
+
+        if (didExpire) {
+          recordPaymentMetric('reservationExpired');
+        }
 
         return;
       } catch (error) {
@@ -432,13 +438,4 @@ export class PaymentExpirationService {
     return code === 'P2034';
   }
 
-  private getErrorMessage(
-    error: unknown,
-  ): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-
-    return 'Unknown expiration error.';
-  }
 }

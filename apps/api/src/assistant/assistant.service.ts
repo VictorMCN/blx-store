@@ -11,6 +11,12 @@ import type {
 } from 'openai/resources/responses/responses';
 import type { AssistantChatDto } from './dto/assistant-chat.dto.js';
 import { AssistantToolsService } from './assistant-tools.service.js';
+import {
+  recordAssistantChat,
+  recordOpenAiCall,
+  type AiChatOutcome,
+  type AiChatRoute,
+} from '../observability/ai-metrics.service.js';
 
 const MAX_TOOL_ROUNDS = 3;
 const MAX_CATALOG_RESULTS = 5;
@@ -154,19 +160,62 @@ export class AssistantService {
   ) {}
 
   async chat(userId: string, dto: AssistantChatDto) {
+    const startedAt = process.hrtime.bigint();
+
+    const telemetry: {
+      route: AiChatRoute;
+      outcome: AiChatOutcome;
+    } = {
+      route: 'openai',
+      outcome: 'failure',
+    };
+
+    try {
+      const result = await this.handleChat(
+        userId,
+        dto,
+        () => {
+          telemetry.route = 'catalog';
+        },
+        () => {
+          telemetry.outcome = 'incomplete';
+        },
+      );
+
+      if (telemetry.outcome !== 'incomplete') {
+        telemetry.outcome = 'success';
+      }
+
+      return result;
+    } finally {
+      recordAssistantChat(
+        telemetry.route,
+        telemetry.outcome,
+        Number(
+          process.hrtime.bigint() - startedAt,
+        ) / 1_000_000,
+      );
+    }
+  }
+
+  private async handleChat(
+    userId: string,
+    dto: AssistantChatDto,
+    markCatalog: () => void,
+    markIncomplete: () => void,
+  ) {
     const message = dto.message.trim();
 
     try {
       const directReply = await this.tryDirectCatalogReply(message);
 
       if (directReply) {
+        markCatalog();
         return { message: directReply };
       }
-    } catch (error) {
-      this.logger.error(
-        'Direct catalog search failed.',
-        error instanceof Error ? error.stack : undefined,
-      );
+    } catch {
+      markCatalog();
+      this.logger.error('Direct catalog search failed.');
 
       throw new ServiceUnavailableException(
         'Product search is temporarily unavailable.',
@@ -252,15 +301,14 @@ export class AssistantService {
         'AI assistant reached the maximum tool-call rounds.',
       );
 
+      markIncomplete();
+
       return {
         message:
           'I could not complete that request. Please try a simpler question.',
       };
-    } catch (error) {
-      this.logger.error(
-        'AI assistant request failed.',
-        error instanceof Error ? error.stack : undefined,
-      );
+    } catch {
+      this.logger.error('AI assistant request failed.');
 
       throw new ServiceUnavailableException(
         'AI assistant is temporarily unavailable.',
@@ -395,17 +443,48 @@ export class AssistantService {
 
     const model = preferredModel ?? this.model;
 
-    const create = (targetModel: string) =>
-      client.responses.create({
-        model: targetModel,
-        instructions: ASSISTANT_INSTRUCTIONS,
-        ...(previousResponseId
-          ? { previous_response_id: previousResponseId }
-          : {}),
-        input,
-        tools: ASSISTANT_TOOLS,
-        max_output_tokens: 500,
-      });
+    const create = async (
+      targetModel: string,
+      isFallback = false,
+    ) => {
+      const startedAt = process.hrtime.bigint();
+
+      try {
+        const response = await client.responses.create({
+          model: targetModel,
+          instructions: ASSISTANT_INSTRUCTIONS,
+          ...(previousResponseId
+            ? { previous_response_id: previousResponseId }
+            : {}),
+          input,
+          tools: ASSISTANT_TOOLS,
+          max_output_tokens: 500,
+        });
+
+        recordOpenAiCall(
+          'success',
+          isFallback,
+          Number(
+            process.hrtime.bigint() - startedAt,
+          ) / 1_000_000,
+          response.usage,
+        );
+
+        return response;
+      } catch (error) {
+        recordOpenAiCall(
+          this.isRateLimitError(error)
+            ? 'rate_limit'
+            : 'error',
+          isFallback,
+          Number(
+            process.hrtime.bigint() - startedAt,
+          ) / 1_000_000,
+        );
+
+        throw error;
+      }
+    };
 
     try {
       return {
@@ -425,7 +504,7 @@ export class AssistantService {
       );
 
       return {
-        response: await create(this.fallbackModel),
+        response: await create(this.fallbackModel, true),
         model: this.fallbackModel,
       };
     }

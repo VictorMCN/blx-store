@@ -565,4 +565,60 @@ describe('Admin dashboard (e2e)', () => {
       })
       .expect(409);
   });
+
+  it('requires authentication for system monitoring', async () => {
+    const response = await request(
+      app.getHttpServer(),
+    )
+      .get('/api/admin/monitoring')
+      .expect(401);
+
+    expect(response.body).not.toHaveProperty('http');
+    expect(response.body).not.toHaveProperty('ai');
+    expect(response.body).not.toHaveProperty('payments');
+  });
+
+  it('forbids customer access to system monitoring', async () => {
+    const response = await request(
+      app.getHttpServer(),
+    )
+      .get('/api/admin/monitoring')
+      .set('Cookie', customerCookie)
+      .expect(403);
+
+    expect(response.body).not.toHaveProperty('http');
+    expect(response.body).not.toHaveProperty('ai');
+    expect(response.body).not.toHaveProperty('payments');
+  });
+
+  it('allows administrators to view system monitoring', async () => {
+    const response = await request(
+      app.getHttpServer(),
+    )
+      .get('/api/admin/monitoring')
+      .set('Cookie', adminCookie)
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      service: 'blx-store-api',
+      health: {
+        api: 'ok',
+        database: 'ok',
+      },
+      http: {
+        history: expect.any(Array),
+      },
+      ai: {
+        history: expect.any(Array),
+      },
+      payments: {
+        history: expect.any(Array),
+      },
+    });
+
+    expect(response.body.generatedAt).toEqual(
+      expect.any(String),
+    );
+  });
+
 });

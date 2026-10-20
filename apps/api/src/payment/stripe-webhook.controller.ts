@@ -11,6 +11,7 @@ import {
 import type { Request } from 'express';
 import type Stripe from 'stripe';
 import { EmailService } from '../notification/email.service.js';
+import { recordPaymentMetric } from '../observability/payment-metrics.service.js';
 import { PaymentService } from './payment.service.js';
 import { StripeService } from './stripe.service.js';
 
@@ -34,38 +35,74 @@ export class StripeWebhookController {
     signature: string | undefined,
   ) {
     if (!signature) {
+      recordPaymentMetric('webhookRejected');
+
       throw new BadRequestException(
         'Missing Stripe signature.',
       );
     }
 
     if (!request.rawBody) {
+      recordPaymentMetric('webhookRejected');
+
       throw new BadRequestException(
         'Raw request body is required.',
       );
     }
 
-    const event =
-      this.stripeService.constructWebhookEvent(
-        request.rawBody,
-        signature,
+    let event: Stripe.Event;
+
+    try {
+      event =
+        this.stripeService.constructWebhookEvent(
+          request.rawBody,
+          signature,
+        );
+    } catch (error) {
+      recordPaymentMetric('webhookRejected');
+      throw error;
+    }
+
+    try {
+      await this.paymentService.handleStripeWebhook(
+        event,
       );
 
-    await this.paymentService.handleStripeWebhook(
-      event,
-    );
+      if (
+        event.type ===
+        'payment_intent.succeeded'
+      ) {
+        const paymentIntent =
+          event.data.object as Stripe.PaymentIntent;
 
-    if (
-      event.type ===
-      'payment_intent.succeeded'
-    ) {
-      const paymentIntent =
-        event.data
-          .object as Stripe.PaymentIntent;
+        await this.emailService.sendOrderConfirmedForPaymentIntent(
+          paymentIntent.id,
+        );
+      }
+    } catch (error) {
+      recordPaymentMetric('webhookProcessingFailed');
+      throw error;
+    }
 
-      await this.emailService.sendOrderConfirmedForPaymentIntent(
-        paymentIntent.id,
-      );
+    recordPaymentMetric('webhookAccepted');
+
+    // These count successfully handled Stripe event deliveries.
+    // They do not represent unique payment state transitions.
+    switch (event.type) {
+      case 'payment_intent.succeeded':
+        recordPaymentMetric('paymentSucceeded');
+        break;
+
+      case 'payment_intent.payment_failed':
+        recordPaymentMetric('paymentFailed');
+        break;
+
+      case 'payment_intent.canceled':
+        recordPaymentMetric('paymentCanceled');
+        break;
+
+      default:
+        break;
     }
 
     return {

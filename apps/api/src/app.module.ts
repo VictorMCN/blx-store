@@ -10,6 +10,9 @@ import { CartModule } from './cart/cart.module.js';
 import { CatalogModule } from './catalog/catalog.module.js';
 import { CustomerAccountModule } from './customer-account/customer-account.module.js';
 import { PrismaModule } from './database/prisma.module.js';
+import { AiMetricsReporter } from './observability/ai-metrics.service.js';
+import { HttpMetricsReporter } from './observability/http-metrics.service.js';
+import { PaymentMetricsReporter } from './observability/payment-metrics.service.js';
 import { OrderModule } from './order/order.module.js';
 import { PaymentModule } from './payment/payment.module.js';
 
@@ -38,6 +41,9 @@ import { PaymentModule } from './payment/payment.module.js';
   ],
   providers: [
     AppService,
+    HttpMetricsReporter,
+    AiMetricsReporter,
+    PaymentMetricsReporter,
   ],
 })
 export class AppModule {}

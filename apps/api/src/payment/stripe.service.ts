@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
+import { recordPaymentMetric } from '../observability/payment-metrics.service.js';
 
 interface CreateStripePaymentIntentInput {
   paymentId: string;
@@ -25,32 +26,51 @@ export class StripeService {
   async createPaymentIntent(
     input: CreateStripePaymentIntentInput,
   ) {
-    const stripe = this.getClient();
+    let stripe: Stripe;
 
     try {
-      return await stripe.paymentIntents.create(
-        {
-          amount: input.amountInCents,
-          currency:
-            input.currency.toLowerCase(),
-          automatic_payment_methods: {
-            enabled: true,
-          },
-          description:
-            `BLX Store order ${input.orderNumber}`,
-          metadata: {
-            paymentId: input.paymentId,
-            orderId: input.orderId,
-            orderNumber:
-              input.orderNumber,
-          },
-        },
-        {
-          idempotencyKey:
-            input.paymentId,
-        },
+      stripe = this.getClient();
+    } catch (error) {
+      recordPaymentMetric(
+        'paymentIntentCreationFailed',
       );
+
+      throw error;
+    }
+
+    try {
+      const paymentIntent =
+        await stripe.paymentIntents.create(
+          {
+            amount: input.amountInCents,
+            currency:
+              input.currency.toLowerCase(),
+            automatic_payment_methods: {
+              enabled: true,
+            },
+            description:
+              `BLX Store order ${input.orderNumber}`,
+            metadata: {
+              paymentId: input.paymentId,
+              orderId: input.orderId,
+              orderNumber:
+                input.orderNumber,
+            },
+          },
+          {
+            idempotencyKey:
+              input.paymentId,
+          },
+        );
+
+      recordPaymentMetric('paymentIntentCreated');
+
+      return paymentIntent;
     } catch {
+      recordPaymentMetric(
+        'paymentIntentCreationFailed',
+      );
+
       throw new ServiceUnavailableException(
         'Payment provider request failed.',
       );
