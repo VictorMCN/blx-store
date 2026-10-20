@@ -15,10 +15,13 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from 'vitest';
 import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
 import { PrismaService } from '../src/database/prisma.service.js';
+import { ErpSyncService } from '../src/erp/erp-sync.service.js';
+import { MockErpProvider } from '../src/erp/mock-erp.provider.js';
 import { StripeService } from '../src/payment/stripe.service.js';
 
 class FakeStripeWebhookService {
@@ -803,6 +806,167 @@ describe('Stripe payment webhook (e2e)', () => {
     expect(
       inventory.reservedQuantity,
     ).toBe(0);
+  });
+
+  it('exports a paid order to the mock ERP with retry and idempotency', async () => {
+    const scenario = await createScenario({
+      quantity: 2,
+    });
+
+    const paymentIntent = createPaymentIntent({
+      id: scenario.paymentIntentId,
+      paymentId: scenario.payment.id,
+      orderId: scenario.order.id,
+      status: 'succeeded',
+    });
+
+    const syncService = app.get(ErpSyncService);
+    const provider = app.get(MockErpProvider);
+
+    await sendWebhook(
+      createEvent('payment_intent.succeeded', paymentIntent),
+    ).expect(200);
+
+    await sendWebhook(
+      createEvent('payment_intent.succeeded', paymentIntent),
+    ).expect(200);
+
+    const payment = await prisma.payment.findUniqueOrThrow({
+      where: { id: scenario.payment.id },
+    });
+
+    const order = await prisma.order.findUniqueOrThrow({
+      where: { id: scenario.order.id },
+    });
+
+    expect(payment.status).toBe('SUCCEEDED');
+    expect(order.status).toBe('PAID');
+
+    const pendingJob = await prisma.erpSyncJob.findUniqueOrThrow({
+      where: { orderId: scenario.order.id },
+    });
+
+    expect(pendingJob.status).toBe('PENDING');
+    expect(pendingJob.attempts).toBe(0);
+
+    expect(
+      await prisma.erpSyncJob.count({
+        where: { orderId: scenario.order.id },
+      }),
+    ).toBe(1);
+
+    const originalExport = provider.exportOrder.bind(provider);
+    let simulatedFailure = false;
+
+    const exportSpy = vi.spyOn(provider, 'exportOrder')
+      .mockImplementation(async (payload) => {
+        if (
+          payload.id === scenario.order.id &&
+          !simulatedFailure
+        ) {
+          simulatedFailure = true;
+          throw new Error('Simulated ERP outage');
+        }
+
+        return originalExport(payload);
+      });
+
+    try {
+      await syncService.processPendingJobs();
+
+      expect(simulatedFailure).toBe(true);
+
+      const retryJob = await prisma.erpSyncJob.findUniqueOrThrow({
+        where: { orderId: scenario.order.id },
+      });
+
+      expect(retryJob.status).toBe('RETRY');
+      expect(retryJob.attempts).toBe(1);
+      expect(retryJob.lastErrorCode).toBe('EXPORT_FAILED');
+
+      const paidOrder = await prisma.order.findUniqueOrThrow({
+        where: { id: scenario.order.id },
+      });
+
+      expect(paidOrder.status).toBe('PAID');
+
+      expect(
+        await prisma.erpMockOrder.count({
+          where: { sourceOrderId: scenario.order.id },
+        }),
+      ).toBe(0);
+
+      exportSpy.mockRestore();
+
+      await prisma.erpSyncJob.update({
+        where: { orderId: scenario.order.id },
+        data: {
+          nextAttemptAt: new Date(0),
+        },
+      });
+
+      await syncService.processPendingJobs();
+
+      const syncedJob = await prisma.erpSyncJob.findUniqueOrThrow({
+        where: { orderId: scenario.order.id },
+      });
+
+      expect(syncedJob.status).toBe('SYNCED');
+      expect(syncedJob.attempts).toBe(2);
+      expect(syncedJob.lastErrorCode).toBeNull();
+      expect(syncedJob.syncedAt).not.toBeNull();
+      expect(syncedJob.externalReference).toBe(
+        `MOCK-${scenario.order.id}`,
+      );
+
+      const imported = await prisma.erpMockOrder.findUniqueOrThrow({
+        where: { sourceOrderId: scenario.order.id },
+      });
+
+      expect(imported.orderNumber).toBe(scenario.order.orderNumber);
+      expect(imported.totalInCents).toBe(scenario.order.totalInCents);
+      expect(imported.currency).toBe('BRL');
+      expect(imported.items).toEqual([
+        {
+          sku: productSku,
+          quantity: 2,
+          unitPriceInCents: 50000,
+        },
+      ]);
+
+      await sendWebhook(
+        createEvent('payment_intent.succeeded', paymentIntent),
+      ).expect(200);
+
+      await syncService.processPendingJobs();
+
+      expect(
+        await prisma.erpSyncJob.count({
+          where: { orderId: scenario.order.id },
+        }),
+      ).toBe(1);
+
+      expect(
+        await prisma.erpMockOrder.count({
+          where: { sourceOrderId: scenario.order.id },
+        }),
+      ).toBe(1);
+
+      const inventory = await prisma.inventory.findUniqueOrThrow({
+        where: { productId },
+      });
+
+      expect(inventory.quantity).toBe(8);
+      expect(inventory.reservedQuantity).toBe(0);
+    } finally {
+      exportSpy.mockRestore();
+
+      await prisma.erpMockOrder.deleteMany({
+        where: {
+          sourceOrderId: scenario.order.id,
+        },
+      });
+    }
   });
 
   it('processes a repeated success webhook idempotently', async () => {

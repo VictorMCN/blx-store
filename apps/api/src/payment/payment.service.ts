@@ -546,6 +546,16 @@ export class PaymentService {
                 status: 'PAID',
               },
             });
+
+            await transaction.erpSyncJob.upsert({
+              where: {
+                orderId: payment.order.id,
+              },
+              create: {
+                orderId: payment.order.id,
+              },
+              update: {},
+            });
           },
           {
             isolationLevel:

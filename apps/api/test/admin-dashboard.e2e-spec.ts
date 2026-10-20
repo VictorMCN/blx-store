@@ -16,6 +16,7 @@ import {
 import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
 import { PrismaService } from '../src/database/prisma.service.js';
+import { ErpInventorySyncService } from '../src/erp/erp-inventory-sync.service.js';
 
 describe('Admin dashboard (e2e)', () => {
   let app: INestApplication;
@@ -619,6 +620,136 @@ describe('Admin dashboard (e2e)', () => {
     expect(response.body.generatedAt).toEqual(
       expect.any(String),
     );
+  });
+
+
+  it('requires authentication for ERP synchronization', async () => {
+    const response = await request(
+      app.getHttpServer(),
+    )
+      .get('/api/admin/erp/jobs')
+      .expect(401);
+
+    expect(response.body).not.toHaveProperty('jobs');
+    expect(response.body).not.toHaveProperty('counts');
+  });
+
+  it('forbids customer access to ERP synchronization', async () => {
+    const response = await request(
+      app.getHttpServer(),
+    )
+      .get('/api/admin/erp/jobs')
+      .set('Cookie', customerCookie)
+      .expect(403);
+
+    expect(response.body).not.toHaveProperty('jobs');
+  });
+
+  it('allows administrators to inspect ERP jobs', async () => {
+    const response = await request(
+      app.getHttpServer(),
+    )
+      .get('/api/admin/erp/jobs')
+      .set('Cookie', adminCookie)
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      provider: 'mock',
+      counts: {
+        PENDING: expect.any(Number),
+        PROCESSING: expect.any(Number),
+        RETRY: expect.any(Number),
+        SYNCED: expect.any(Number),
+        FAILED: expect.any(Number),
+      },
+      jobs: expect.any(Array),
+    });
+  });
+
+  it('forbids customer retries of ERP jobs', async () => {
+    await request(
+      app.getHttpServer(),
+    )
+      .post(
+        '/api/admin/erp/jobs/00000000-0000-4000-8000-000000000001/retry',
+      )
+      .set('Cookie', customerCookie)
+      .expect(403);
+  });
+
+  it('rejects retries of nonexistent ERP jobs', async () => {
+    await request(
+      app.getHttpServer(),
+    )
+      .post(
+        '/api/admin/erp/jobs/00000000-0000-4000-8000-000000000001/retry',
+      )
+      .set('Cookie', adminCookie)
+      .expect(404);
+  });
+
+
+  it('requires authentication for mock ERP inventory', async () => {
+    await request(app.getHttpServer())
+      .get('/api/admin/erp/inventory')
+      .expect(401);
+  });
+
+  it('forbids customer access to mock ERP inventory', async () => {
+    await request(app.getHttpServer())
+      .get('/api/admin/erp/inventory')
+      .set('Cookie', customerCookie)
+      .expect(403);
+  });
+
+  it('allows administrators to view mock ERP inventory', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/api/admin/erp/inventory')
+      .set('Cookie', adminCookie)
+      .expect(200);
+
+    expect(response.body).toMatchObject({
+      provider: 'mock',
+      inventory: expect.any(Array),
+    });
+  });
+
+  it('synchronizes the actual product inventory into the mock ERP', async () => {
+    const inventorySync = app.get(ErpInventorySyncService);
+
+    try {
+      await inventorySync.syncInventory();
+
+      const response = await request(app.getHttpServer())
+        .get('/api/admin/erp/inventory')
+        .set('Cookie', adminCookie)
+        .expect(200);
+
+      const item = response.body.inventory.find(
+        (entry: { sku: string }) => entry.sku === productSku,
+      );
+
+      expect(item).toMatchObject({
+        sku: productSku,
+        onHandQuantity: expect.any(Number),
+        reservedQuantity: expect.any(Number),
+        availableQuantity: expect.any(Number),
+      });
+
+      expect(item.availableQuantity).toBe(
+        item.onHandQuantity - item.reservedQuantity,
+      );
+
+      expect(
+        await prisma.erpMockInventory.count({
+          where: { sku: productSku },
+        }),
+      ).toBe(1);
+    } finally {
+      await prisma.erpMockInventory.deleteMany({
+        where: { sku: productSku },
+      });
+    }
   });
 
 });
