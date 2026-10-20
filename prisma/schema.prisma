@@ -230,6 +230,7 @@ model Order {
   user     User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
   items    OrderItem[]
   payments Payment[]
+  erpSyncJob ErpSyncJob?
 
   @@index([userId, createdAt])
   @@index([status])
@@ -280,4 +281,53 @@ model Payment {
 
   @@index([orderId, createdAt])
   @@index([status])
+}
+
+enum ErpSyncStatus {
+  PENDING
+  PROCESSING
+  RETRY
+  SYNCED
+  FAILED
+}
+
+model ErpSyncJob {
+  id                String        @id @default(uuid()) @db.Uuid
+  orderId           String        @unique @db.Uuid
+  status            ErpSyncStatus @default(PENDING)
+  attempts          Int           @default(0)
+  nextAttemptAt     DateTime      @default(now()) @db.Timestamptz(3)
+  lockedUntil       DateTime?     @db.Timestamptz(3)
+  externalReference String?       @db.VarChar(80)
+  lastErrorCode     String?       @db.VarChar(60)
+  syncedAt          DateTime?     @db.Timestamptz(3)
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime      @updatedAt @db.Timestamptz(3)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([status, lockedUntil])
+}
+
+model ErpMockOrder {
+  id            String   @id @default(uuid()) @db.Uuid
+  sourceOrderId String   @unique @db.Uuid
+  reference     String   @unique @db.VarChar(80)
+  orderNumber   String   @db.VarChar(30)
+  currency      String   @db.VarChar(3)
+  totalInCents  Int
+  items         Json
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+}
+
+model ErpMockInventory {
+  id                String   @id @default(uuid()) @db.Uuid
+  sku               String   @unique @db.VarChar(80)
+  onHandQuantity    Int
+  reservedQuantity  Int
+  availableQuantity Int
+  syncedAt          DateTime @db.Timestamptz(3)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
 }
