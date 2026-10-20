@@ -138,6 +138,7 @@ describe('Payment retry (e2e)', () => {
     )
       .post('/api/auth/register')
       .send({
+        fullName: 'Test Customer',
         email,
         password,
       })

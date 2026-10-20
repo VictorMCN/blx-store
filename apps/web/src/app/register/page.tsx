@@ -9,7 +9,8 @@ import {
 import { useStore } from "@/components/store-provider";
 
 export default function RegisterPage() {
-  const router = useRouter();
+  const router =
+    useRouter();
 
   const {
     user,
@@ -17,21 +18,47 @@ export default function RegisterPage() {
     register,
   } = useStore();
 
-  const [email, setEmail] =
-    useState("");
+  const [
+    fullName,
+    setFullName,
+  ] = useState("");
 
-  const [password, setPassword] =
-    useState("");
+  const [
+    email,
+    setEmail,
+  ] = useState("");
 
-  const [submitting, setSubmitting] =
-    useState(false);
+  const [
+    password,
+    setPassword,
+  ] = useState("");
 
-  const [error, setError] =
-    useState<string | null>(null);
+  const [
+    confirmPassword,
+    setConfirmPassword,
+  ] = useState("");
+
+  const [
+    submitting,
+    setSubmitting,
+  ] = useState(false);
+
+  const [
+    error,
+    setError,
+  ] =
+    useState<string | null>(
+      null,
+    );
 
   useEffect(() => {
-    if (!authLoading && user) {
-      router.replace("/account");
+    if (
+      !authLoading &&
+      user
+    ) {
+      router.replace(
+        "/account",
+      );
     }
   }, [
     authLoading,
@@ -44,16 +71,42 @@ export default function RegisterPage() {
   ) {
     event.preventDefault();
 
-    setSubmitting(true);
     setError(null);
 
-    try {
-      await register(
-        email,
-        password,
+    if (
+      password !==
+      confirmPassword
+    ) {
+      setError(
+        "Passwords do not match.",
       );
 
-      router.push("/account");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const result =
+        await register(
+          fullName,
+          email,
+          password,
+        );
+
+      if (
+        result.verificationRequired
+      ) {
+        router.push(
+          "/verify-email",
+        );
+
+        return;
+      }
+
+      router.push(
+        "/account",
+      );
     } catch (caught) {
       setError(
         caught instanceof Error
@@ -81,10 +134,9 @@ export default function RegisterPage() {
 
             <p className="mt-5 max-w-lg text-base leading-7 text-slate-600">
               Register once, complete your
-              customer information and
-              keep your purchases,
-              addresses and payments
-              organized.
+              customer information and keep
+              your purchases, addresses and
+              payments organized.
             </p>
           </div>
 
@@ -146,10 +198,11 @@ export default function RegisterPage() {
               </h2>
 
               <p className="mt-3 text-sm leading-6 text-slate-500">
-                Customer and shipping
-                information can be
-                completed after
-                registration.
+                Your name and email belong
+                to your BLX account.
+                Customer, tax and shipping
+                information can be completed
+                afterwards.
               </p>
             </div>
 
@@ -157,6 +210,29 @@ export default function RegisterPage() {
               onSubmit={submit}
               className="mt-8 space-y-5"
             >
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">
+                  Full name
+                </span>
+
+                <input
+                  type="text"
+                  required
+                  minLength={2}
+                  maxLength={150}
+                  autoComplete="name"
+                  value={fullName}
+                  onChange={(event) =>
+                    setFullName(
+                      event.target
+                        .value,
+                    )
+                  }
+                  placeholder="Your full name"
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3.5 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
+              </label>
+
               <label className="block">
                 <span className="text-sm font-medium text-slate-700">
                   Email
@@ -169,7 +245,8 @@ export default function RegisterPage() {
                   value={email}
                   onChange={(event) =>
                     setEmail(
-                      event.target.value,
+                      event.target
+                        .value,
                     )
                   }
                   placeholder="you@example.com"
@@ -185,21 +262,46 @@ export default function RegisterPage() {
                 <input
                   type="password"
                   required
-                  minLength={8}
+                  minLength={12}
                   autoComplete="new-password"
                   value={password}
                   onChange={(event) =>
                     setPassword(
-                      event.target.value,
+                      event.target
+                        .value,
                     )
                   }
-                  placeholder="At least 8 characters"
+                  placeholder="At least 12 characters"
                   className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3.5 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
                 />
 
                 <span className="mt-2 block text-xs text-slate-400">
-                  Minimum 8 characters.
+                  Minimum 12 characters.
                 </span>
+              </label>
+
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">
+                  Confirm password
+                </span>
+
+                <input
+                  type="password"
+                  required
+                  minLength={12}
+                  autoComplete="new-password"
+                  value={
+                    confirmPassword
+                  }
+                  onChange={(event) =>
+                    setConfirmPassword(
+                      event.target
+                        .value,
+                    )
+                  }
+                  placeholder="Enter your password again"
+                  className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3.5 text-sm outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                />
               </label>
 
               {error && (
@@ -210,7 +312,9 @@ export default function RegisterPage() {
 
               <button
                 type="submit"
-                disabled={submitting}
+                disabled={
+                  submitting
+                }
                 className="w-full rounded-xl bg-slate-950 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {submitting

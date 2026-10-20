@@ -59,6 +59,7 @@ export default function AccountPage() {
   const {
     user,
     authLoading,
+    logout,
   } = useStore();
 
   const [profile, setProfile] =
@@ -77,6 +78,11 @@ export default function AccountPage() {
 
   const [error, setError] =
     useState<string | null>(null);
+
+  const [
+    loggingOut,
+    setLoggingOut,
+  ] = useState(false);
 
   const [
     editingProfile,
@@ -271,6 +277,30 @@ export default function AccountPage() {
     setMessage(null);
   }
 
+  async function handleLogout() {
+    if (loggingOut) {
+      return;
+    }
+
+    setLoggingOut(true);
+    setError(null);
+
+    try {
+      await logout();
+
+      router.replace("/");
+      router.refresh();
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not sign out.",
+      );
+    } finally {
+      setLoggingOut(false);
+    }
+  }
+
   async function addAddress(
     event: React.FormEvent<HTMLFormElement>,
   ) {
@@ -423,13 +453,28 @@ export default function AccountPage() {
           </p>
         </div>
 
-        <Link
-          href="/account/orders"
-          prefetch={false}
-          className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold transition hover:border-blue-300 hover:text-blue-600"
-        >
-          View orders
-        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            href="/account/orders"
+            prefetch={false}
+            className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold transition hover:border-blue-300 hover:text-blue-600"
+          >
+            View orders
+          </Link>
+
+          <button
+            type="button"
+            onClick={() =>
+              void handleLogout()
+            }
+            disabled={loggingOut}
+            className="rounded-xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loggingOut
+              ? "Signing out..."
+              : "Sign out"}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -597,24 +642,22 @@ export default function AccountPage() {
 
               {editingAccountType ===
               "INDIVIDUAL" ? (
-                <label>
-                  <span className="text-sm font-medium">
-                    Full name
-                  </span>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Account holder
+                  </p>
 
-                  <input
-                    name="fullName"
-                    required
-                    defaultValue={
-                      profile?.accountType ===
-                      "INDIVIDUAL"
-                        ? profile.fullName ??
-                          ""
-                        : ""
-                    }
-                    className="mt-2 w-full rounded-xl border border-slate-300 px-4 py-3"
-                  />
-                </label>
+                  <p className="mt-1 font-semibold text-slate-950">
+                    {user?.fullName ??
+                      profile?.fullName ??
+                      "Not provided"}
+                  </p>
+
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Name and email are linked
+                    to your BLX account.
+                  </p>
+                </div>
               ) : (
                 <>
                   <label>

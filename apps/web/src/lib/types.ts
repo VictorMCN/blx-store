@@ -2,6 +2,7 @@ export type UserRole = "CUSTOMER" | "ADMIN";
 
 export interface AuthUser {
   id: string;
+  fullName: string | null;
   email: string;
   role: UserRole;
   createdAt: string;

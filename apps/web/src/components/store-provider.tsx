@@ -8,27 +8,44 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { apiFetch, ApiError } from "@/lib/api";
+import {
+  apiFetch,
+  ApiError,
+} from "@/lib/api";
 import type {
   AuthUser,
   Cart,
 } from "@/lib/types";
 
+interface RegisterResult {
+  verificationRequired: boolean;
+  emailSent: boolean;
+}
+
 interface StoreContextValue {
   user: AuthUser | null;
   authLoading: boolean;
   cartCount: number;
-  refreshUser: () => Promise<void>;
-  refreshCart: () => Promise<void>;
+
+  refreshUser:
+    () => Promise<void>;
+
+  refreshCart:
+    () => Promise<void>;
+
   login: (
     email: string,
     password: string,
   ) => Promise<void>;
+
   register: (
+    fullName: string,
     email: string,
     password: string,
-  ) => Promise<void>;
-  logout: () => Promise<void>;
+  ) => Promise<RegisterResult>;
+
+  logout:
+    () => Promise<void>;
 }
 
 const StoreContext =
@@ -42,13 +59,19 @@ export function StoreProvider({
   children: ReactNode;
 }) {
   const [user, setUser] =
-    useState<AuthUser | null>(null);
+    useState<AuthUser | null>(
+      null,
+    );
 
-  const [authLoading, setAuthLoading] =
-    useState(true);
+  const [
+    authLoading,
+    setAuthLoading,
+  ] = useState(true);
 
-  const [cartCount, setCartCount] =
-    useState(0);
+  const [
+    cartCount,
+    setCartCount,
+  ] = useState(0);
 
   const refreshUser =
     useCallback(async () => {
@@ -58,10 +81,13 @@ export function StoreProvider({
             user: AuthUser;
           }>("/api/auth/me");
 
-        setUser(response.user);
+        setUser(
+          response.user,
+        );
       } catch (error) {
         if (
-          error instanceof ApiError &&
+          error instanceof
+            ApiError &&
           error.status === 401
         ) {
           setUser(null);
@@ -81,11 +107,13 @@ export function StoreProvider({
           }>("/api/cart");
 
         setCartCount(
-          response.cart.totalItemCount,
+          response.cart
+            .totalItemCount,
         );
       } catch (error) {
         if (
-          error instanceof ApiError &&
+          error instanceof
+            ApiError &&
           error.status === 401
         ) {
           setCartCount(0);
@@ -97,7 +125,8 @@ export function StoreProvider({
     }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    let cancelled =
+      false;
 
     async function initialize() {
       try {
@@ -110,7 +139,9 @@ export function StoreProvider({
           return;
         }
 
-        setUser(authResponse.user);
+        setUser(
+          authResponse.user,
+        );
 
         try {
           const cartResponse =
@@ -127,7 +158,8 @@ export function StoreProvider({
         } catch (error) {
           if (
             !(
-              error instanceof ApiError &&
+              error instanceof
+                ApiError &&
               error.status === 401
             )
           ) {
@@ -136,7 +168,8 @@ export function StoreProvider({
         }
       } catch (error) {
         if (
-          error instanceof ApiError &&
+          error instanceof
+            ApiError &&
           error.status === 401
         ) {
           if (!cancelled) {
@@ -153,7 +186,9 @@ export function StoreProvider({
         );
       } finally {
         if (!cancelled) {
-          setAuthLoading(false);
+          setAuthLoading(
+            false,
+          );
         }
       }
     }
@@ -174,13 +209,16 @@ export function StoreProvider({
         user: AuthUser;
       }>("/api/auth/login", {
         method: "POST",
+
         body: JSON.stringify({
           email,
           password,
         }),
       });
 
-    setUser(response.user);
+    setUser(
+      response.user,
+    );
 
     try {
       const cartResponse =
@@ -189,12 +227,14 @@ export function StoreProvider({
         }>("/api/cart");
 
       setCartCount(
-        cartResponse.cart.totalItemCount,
+        cartResponse.cart
+          .totalItemCount,
       );
     } catch (error) {
       if (
         !(
-          error instanceof ApiError &&
+          error instanceof
+            ApiError &&
           error.status === 401
         )
       ) {
@@ -206,21 +246,38 @@ export function StoreProvider({
   }
 
   async function register(
+    fullName: string,
     email: string,
     password: string,
-  ) {
-    await apiFetch(
-      "/api/auth/register",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          email,
-          password,
-        }),
-      },
-    );
+  ): Promise<RegisterResult> {
+    const result =
+      await apiFetch<
+        RegisterResult
+      >(
+        "/api/auth/register",
+        {
+          method: "POST",
 
-    await login(email, password);
+          body:
+            JSON.stringify({
+              fullName,
+              email,
+              password,
+            }),
+        },
+      );
+
+    if (
+      !result
+        .verificationRequired
+    ) {
+      await login(
+        email,
+        password,
+      );
+    }
+
+    return result;
   }
 
   async function logout() {

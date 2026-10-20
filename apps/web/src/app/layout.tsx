@@ -3,6 +3,7 @@ import {
   Geist,
   Geist_Mono,
 } from "next/font/google";
+import { AiAssistant } from "@/components/ai-assistant";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { StoreProvider } from "@/components/store-provider";
@@ -50,6 +51,8 @@ export default function RootLayout({
 
             <SiteFooter />
           </div>
+
+          <AiAssistant />
         </StoreProvider>
       </body>
     </html>

@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AdminModule } from './admin/admin.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+import { AssistantModule } from './assistant/assistant.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CartModule } from './cart/cart.module.js';
 import { CatalogModule } from './catalog/catalog.module.js';
@@ -30,6 +31,7 @@ import { PaymentModule } from './payment/payment.module.js';
     OrderModule,
     PaymentModule,
     AdminModule,
+    AssistantModule,
   ],
   controllers: [
     AppController,
