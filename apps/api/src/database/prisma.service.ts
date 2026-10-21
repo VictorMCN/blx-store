@@ -13,7 +13,31 @@ export class PrismaService
   implements OnModuleInit, OnModuleDestroy
 {
   constructor(configService: ConfigService) {
-    const databaseUrl = configService.getOrThrow<string>('DATABASE_URL');
+    const databaseUrl =
+      configService.getOrThrow<string>('DATABASE_URL');
+
+    if (process.env.NODE_ENV === 'test') {
+      const url = new URL(databaseUrl);
+
+      const localHosts = new Set([
+        'localhost',
+        '127.0.0.1',
+        '[::1]',
+      ]);
+
+      const database = decodeURIComponent(
+        url.pathname.slice(1),
+      );
+
+      if (
+        !localHosts.has(url.hostname.toLowerCase()) ||
+        database !== 'blx_store_test'
+      ) {
+        throw new Error(
+          'Test environment refused a non-isolated database connection.',
+        );
+      }
+    }
 
     const adapter = new PrismaPg({
       connectionString: databaseUrl,
