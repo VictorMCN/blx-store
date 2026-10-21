@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AdminModule } from './admin/admin.module.js';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
@@ -27,6 +28,12 @@ import { PaymentModule } from './payment/payment.module.js';
       ],
     }),
     ScheduleModule.forRoot(),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60_000,
+        limit: 100,
+      },
+    ]),
     PrismaModule,
     AuthModule,
     CustomerAccountModule,
