@@ -153,3 +153,5 @@ apps/api/src/generated/prisma/
 
 # Vercel local files
 .vercel/
+.vercel
+.env*
