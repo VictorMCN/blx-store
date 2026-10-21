@@ -1,0 +1,26 @@
+FROM node:24-bookworm-slim
+
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends \
+      openssl \
+      ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+COPY . .
+
+RUN npm ci
+
+RUN DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder" \
+    npx prisma generate
+
+RUN npm run build --workspace=@blx-store/api
+
+WORKDIR /workspace/apps/api
+
+ENV NODE_ENV=production
+
+EXPOSE 3001
+
+CMD ["node", "dist/main.js"]

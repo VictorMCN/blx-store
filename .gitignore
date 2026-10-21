@@ -150,3 +150,6 @@ vite.config.ts.timestamp-*
 
 # Prisma generated client
 apps/api/src/generated/prisma/
+
+# Vercel local files
+.vercel/

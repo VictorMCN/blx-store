@@ -18,6 +18,10 @@ import { PaymentMetricsReporter } from './observability/payment-metrics.service.
 import { OrderModule } from './order/order.module.js';
 import { PaymentModule } from './payment/payment.module.js';
 
+const enableApiCronJobs =
+  process.env.NODE_ENV !== 'production' &&
+  process.env.NODE_ENV !== 'test';
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -27,7 +31,11 @@ import { PaymentModule } from './payment/payment.module.js';
         '../../.env',
       ],
     }),
-    ScheduleModule.forRoot(),
+    ScheduleModule.forRoot({
+      cronJobs: enableApiCronJobs,
+      intervals: true,
+      timeouts: true,
+    }),
     ThrottlerModule.forRoot([
       {
         ttl: 60_000,
