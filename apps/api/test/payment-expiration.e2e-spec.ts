@@ -773,6 +773,39 @@ describe(
     });
 
     it(
+      'keeps inventory consistent when two worker instances expire the same order',
+      async () => {
+        const scenario = await createScenario();
+
+        const secondWorker =
+          new PaymentExpirationService(
+            prisma,
+            fakeStripe as unknown as StripeService,
+            paymentService,
+          );
+
+        await Promise.all([
+          expirationService.expirePendingOrders(),
+          secondWorker.expirePendingOrders(),
+        ]);
+
+        const state = await readScenario(scenario);
+
+        expect(state.order.status).toBe('EXPIRED');
+        expect(state.payment.status).toBe('CANCELED');
+
+        expect(state.inventory.quantity).toBe(10);
+        expect(
+          state.inventory.reservedQuantity,
+        ).toBe(0);
+
+        expect(fakeStripe.cancelCalls).toContain(
+          scenario.paymentIntentId,
+        );
+      },
+    );
+
+    it(
       'recovers an unlinked provider PaymentIntent before releasing an expired reservation',
       async () => {
         const scenario =
