@@ -12,7 +12,7 @@ const SAFE_METHODS = new Set([
 const STRIPE_WEBHOOK_PATH =
   "/api/payments/stripe/webhook";
 
-function getTrustedOrigin(): string {
+function getTrustedOrigins(): Set<string> {
   const appUrl = process.env.APP_URL;
 
   if (!appUrl) {
@@ -21,7 +21,18 @@ function getTrustedOrigin(): string {
     );
   }
 
-  return new URL(appUrl).origin;
+  const origins = new Set([
+    new URL(appUrl).origin,
+  ]);
+
+  // Codespaces / local development proxy compatibility.
+  // These origins are NEVER trusted in production.
+  if (process.env.NODE_ENV !== "production") {
+    origins.add("http://localhost:3000");
+    origins.add("https://localhost:3000");
+  }
+
+  return origins;
 }
 
 export function proxy(request: NextRequest) {
@@ -36,16 +47,25 @@ export function proxy(request: NextRequest) {
   const fetchSite =
     request.headers.get("sec-fetch-site");
 
-  const trustedOrigin = getTrustedOrigin();
+  const trustedOrigins = getTrustedOrigins();
 
   const invalidOrigin =
-    origin !== trustedOrigin;
+    origin === null ||
+    !trustedOrigins.has(origin);
 
   const invalidFetchSite =
     fetchSite === "cross-site" ||
     fetchSite === "same-site";
 
   if (invalidOrigin || invalidFetchSite) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[BLX ORIGIN BLOCKED]", {
+        origin,
+        fetchSite,
+        allowedOrigins: [...trustedOrigins],
+      });
+    }
+
     return NextResponse.json(
       {
         statusCode: 403,
