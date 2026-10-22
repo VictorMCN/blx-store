@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="apps/web/public/blx-logo.png" alt="BLX Store Logo" width="220" />
+</p>
+
 # BLX Store
 
 A full-stack e-commerce portfolio project focused on secure payments, AI-assisted shopping, administration, inventory management, and production-inspired engineering practices.
@@ -160,3 +164,9 @@ It is not presented as a fully launched commercial store. Some integrations use 
 ## License
 
 No license is granted unless a separate license file is added to this repository.
+
+---
+
+<p align="center">
+  Developed by <strong>Victor Macene</strong>
+</p>
