@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="64"
+     height="64"
+     viewBox="0 0 64 64">
+
+  <rect
+    width="64"
+    height="64"
+    rx="15"
+    fill="#0F172A"
+  />
+
+  <path
+    fill="#3B82F6"
+    fill-rule="evenodd"
+    d="M18 10H34C44 10 49 15 49 23C49 28 46 32 42 34C49 36 52 41 52 48C52 57 45 61 34 61H18V10ZM28 20V30H33C38 30 40 28 40 25C40 22 38 20 33 20H28ZM28 39V51H34C39 51 42 49 42 45C42 41 39 39 34 39H28Z"
+  />
+
+</svg>
