@@ -20,7 +20,7 @@
         "dist/worker.js"
       ],
       "instances": {
-        "iad1": 0
+        "iad1": 1
       },
       "resources": {
         "requests": {
